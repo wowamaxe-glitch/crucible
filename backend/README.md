@@ -55,6 +55,23 @@ The backend runs several background workers for system health and data consisten
 cargo run -p backend
 ```
 
+### Backup Service
+A small HTTP binary for triggering logical backups of the Postgres `public` schema and storing the result in Redis.
+
+Environment variables:
+- `DATABASE_URL` — Postgres connection string
+- `REDIS_URL` — Redis connection string
+- `BACKUP_BIND` — (optional) bind address, default `127.0.0.1:3002`
+
+Endpoints:
+- `POST /backup` — trigger a backup; returns a `job_id` (202 Accepted)
+- `GET /backup/{job_id}` — query status and fetch JSON backup when complete
+
+Run the server locally:
+```bash
+DATABASE_URL=postgres://user:pass@localhost/db REDIS_URL=redis://127.0.0.1/ cargo run -p backend --bin backup
+```
+
 ### Running Tests
 ```bash
 # All tests (unit + integration)
