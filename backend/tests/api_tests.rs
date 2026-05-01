@@ -28,6 +28,11 @@ async fn test_stellar_toml_headers() {
     assert_eq!(cors, "*");
 }
 
+    let config_manager = Arc::new(backend::config::reload::ConfigManager::new(backend::config::AppConfig::default()));
+    let state = Arc::new(AppState {
+        metrics_exporter,
+        error_manager,
+        config_manager,
 #[tokio::test]
 async fn test_get_status_endpoint() {
     let state = Arc::new(AppState {

@@ -1,5 +1,50 @@
 # Crucible Backend
 
+This is the backend component of the Crucible project, providing a JSON schema generator utility.
+
+## Features
+
+- JSON Schema generation using `schemars`
+- Async HTTP server with Axum
+- PostgreSQL database integration with SQLx
+- Redis caching and job queues
+- Comprehensive error handling and tracing
+
+## Usage
+
+Add to your `Cargo.toml`:
+
+```toml
+[dependencies]
+crucible-backend = { path = "../backend" }
+```
+
+Then use the JSON schema generator:
+
+```rust
+use crucible_backend::utils::json_schema::generate_json_schema;
+use serde::{Deserialize, Serialize};
+use schemars::JsonSchema;
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+struct MyStruct {
+    field: String,
+}
+
+let schema = generate_json_schema::<MyStruct>();
+```
+
+## Running Tests
+
+```bash
+cargo test --manifest-path backend/Cargo.toml
+```
+
+## Building
+
+```bash
+cargo build --manifest-path backend/Cargo.toml
+```
 This is the backend service layer for the Crucible toolkit, providing performance profiling, mock service layers, specialized serialization utilities, and robust background monitoring.
 
 ## Features
@@ -37,7 +82,12 @@ The backend runs several background workers for system health and data consisten
 - **API Documentation**: Utoipa (Swagger UI)
 
 ## Structure
+- `src/api/` — API handlers and routing
+- `src/services/` — Business logic and external integrations
+- `src/models/` — Data structures and database schemas
+- `tests/` — Integration and API tests
 - `src/api/` – API handlers and routing
+- `src/bin/` – Standalone service binaries
 - `src/config/` – Environment configuration and hot-reload
 - `src/db/` – Database utilities and seed data
 - `src/jobs/` – Background job definitions (Apalis)
@@ -58,7 +108,7 @@ The backend runs several background workers for system health and data consisten
 
 | Module | Description |
 |---|---|
-| `sys_metrics` | Collects and exposes system metrics (CPU, memory, uptime) |
+| `sys_metrics` | Build system metrics exporter with PostgreSQL persistence and Redis caching (compilation times, dependency counts, cache hit rates) |
 | `error_recovery` | Tracks retry state for failing tasks with configurable max retries |
 | `log_aggregator` | Async MPSC-based log pipeline; persists entries via a background worker |
 | `log_alerts` | Threshold-based alerting over the log pipeline with sliding-window evaluation |
@@ -79,6 +129,12 @@ The backend runs several background workers for system health and data consisten
 | Name | Description |
 |---|---|
 | `logging` | Captures request/response metadata, latency, and status codes; integrated with `tracing` and `log_aggregator` |
+
+### Binaries (`src/bin/`)
+
+| Binary | Description |
+|--------|-------------|
+| `backup` | Database backup and restore HTTP service + job enqueuer |
 
 ### Database (`src/db/`)
 
@@ -101,12 +157,19 @@ The backend runs several background workers for system health and data consisten
 |---|---|---|
 | `GET` | `/api/status` | System health, metrics, and active recovery tasks |
 | `POST` | `/api/profile` | Trigger a profiling collection run |
+| `GET` | `/health` | Backup service liveness probe |
+| `POST` | `/backups` | Enqueue a new backup job |
+| `GET` | `/backups` | List all backup records |
+| `GET` | `/backups/:id` | Get a single backup record |
+| `POST` | `/backups/:id/restore` | Enqueue a restore job for a backup |
 | `POST` | `/api/coverage` | Submit a new code coverage report |
 | `GET` | `/api/coverage/:project` | Get latest coverage report for a specific project |
 | `GET` | `/` | Base API greeting |
 | `GET` | `/.well-known/stellar.toml` | Stellar network metadata (SEP-1) |
 | `GET` | `/api/v1/profiling/metrics` | Detailed performance metrics (OpenAPI) |
 | `GET` | `/api/v1/profiling/health` | Service health check (OpenAPI) |
+| `GET` | `/api/v1/dashboard/metrics` | Dashboard aggregated metrics with Redis caching |
+| `GET` | `/api/v1/dashboard/contracts/:contract_id/stats` | Contract-specific statistics |
 | `GET` | `/api/v1/profiling/prometheus` | Prometheus-compatible metrics |
 | `GET` | `/api/status` | System health summary and recovery status |
 | `POST` | `/api/profile` | Trigger a manual profiling collection run |
@@ -436,15 +499,98 @@ curl "http://localhost:16686/api/traces?service=crucible-backend&limit=1"
 cargo run -p backend
 ```
 
+### Running the backup service
+```bash
+export DATABASE_URL="postgres://postgres:password@localhost/crucible_dev"
+export REDIS_URL="redis://127.0.0.1/"
+export BACKUP_DIR="/tmp/crucible_backups"
+
+cargo run -p backend --bin backup
+```
+
 ## Testing
+
+### All tests
 ```bash
 # All tests (unit + integration + load)
 cargo test -p backend
 
 # Load tests only
 cargo test -p backend --test load_tests -- --nocapture
+
+# Build metrics integration tests (requires PostgreSQL and Redis)
+cargo test -p backend --test build_metrics_tests -- --ignored
 ```
 
+## Build System Metrics Exporter
+
+The `sys_metrics` module provides a production-ready build system metrics exporter that tracks and analyzes build performance across projects.
+
+### Features
+
+- **Build Tracking**: Record compilation times, dependency counts, and resource usage
+- **Status Monitoring**: Track build success/failure/cancellation rates
+- **Cache Analytics**: Monitor cache hit rates to optimize build performance
+- **Resource Metrics**: Track CPU and memory usage during builds
+- **PostgreSQL Persistence**: Durable storage for historical metrics
+- **Redis Caching**: High-performance caching with automatic invalidation
+- **Aggregated Summaries**: Get project-level statistics and success rates
+
+### Usage Example
+
+```rust
+use backend::services::sys_metrics::{BuildMetricsService, BuildMetric, BuildStatus};
+use sqlx::PgPool;
+use redis::Client;
+
+let service = BuildMetricsService::new(pool, redis);
+
+// Record a build metric
+let metric = BuildMetric {
+    id: None,
+    project_name: "crucible".to_string(),
+    build_id: "build-123".to_string(),
+    build_status: BuildStatus::Success,
+    compilation_time_ms: 5000,
+    dependency_count: 42,
+    cache_hit_rate: Some(85.5),
+    cpu_usage: Some(75.2),
+    memory_usage_mb: Some(1024),
+    build_timestamp: Utc::now(),
+};
+service.record_build(metric).await?;
+
+// Get project metrics with caching
+let metrics = service.get_project_metrics("crucible", 10).await?;
+
+// Get aggregated summary
+let summary = service.get_project_summary("crucible").await?;
+println!("Success rate: {}%", summary.success_rate);
+```
+
+### API Reference
+
+#### BuildMetricsService
+
+- `new(db, redis)` - Create a new metrics service
+- `record_build(metric)` - Record a build metric (invalidates cache)
+- `get_project_metrics(project_name, limit)` - Get metrics for a project (with caching)
+- `get_project_summary(project_name)` - Get aggregated statistics
+- `get_recent_metrics(limit)` - Get recent builds across all projects
+- `delete_project_metrics(project_name)` - Delete all metrics for a project
+
+## Backup Service Configuration
+
+All configuration is via environment variables.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DATABASE_URL` | Yes | — | PostgreSQL connection string |
+| `REDIS_URL` | No | `redis://127.0.0.1/` | Redis connection string |
+| `BACKUP_QUEUE` | No | `backup_jobs` | Redis list key for backup jobs |
+| `RESTORE_QUEUE` | No | `restore_jobs` | Redis list key for restore jobs |
+| `BIND_ADDR` | No | `0.0.0.0:8080` | HTTP server bind address |
+| `BACKUP_DIR` | No | `/var/backups/crucible` | Directory for `pg_dump` output files |
 ## Configuration Hot-Reload
 
 `ConfigWatcher` holds the live `AppConfig` behind an `Arc<RwLock<_>>`. Any part of the application that holds a `ConfigHandle` sees new values immediately after a reload — no restart required.
@@ -550,9 +696,173 @@ Seeds are idempotent and safe to run multiple times:
 run_all(&pool).await?;
 ```
 
+
+## Test Utilities
+
+The `test_utils` module includes upstream mocks plus fixture factories for backend tests. The factory API creates consistent domain objects while allowing per-test customization.
+
+```rust
+use backend::test_utils::{build_order, build_product, build_session, build_user, OrderItem};
+use uuid::Uuid;
+
+let user = build_user()
+    .email("user@example.com")
+    .is_admin(true)
+    .finish();
+
+let product = build_product()
+    .name("New Product")
+    .price_cents(2999)
+    .finish();
+
+let order = build_order()
+    .user_id(user.id)
+    .add_item(OrderItem::new(product.id, product.name.clone(), 2, product.price_cents))
+    .finish();
+
+let session = build_session()
+    .user_id(user.id)
+    .expires_in_days(30)
+    .finish();
+```
+
+Factory helpers are re-exported from `backend::test_utils`, including `create_user`, `create_order`, `create_product`, `create_session`, and their builder/customization variants.
+
+### Unit tests only
+```bash
+cargo test -p backend --lib
+```
+
+### Integration tests only
+```bash
+cargo test -p backend --test integration_tests
+```
+
+## Integration Test Framework
+
+Integration tests live under `tests/integration/` and are compiled as a single
+test crate via the `tests/integration_tests.rs` entry point.
+
+### Layout
+
+```
+tests/
+├── integration_tests.rs        # Cargo entry point — declares the integration module
+├── api_tests.rs                # Legacy API smoke test
+└── integration/
+    ├── mod.rs                  # Shared helpers (test_app builder)
+    ├── api_status_test.rs      # Tests for GET /api/status
+    ├── api_profile_test.rs     # Tests for POST /api/profile
+    └── services_test.rs        # Tests for MetricsExporter, ErrorManager, LogAggregator
+```
+
+### Shared helpers
+
+`integration::test_app()` returns a fully-configured [`axum::Router`] backed by
+fresh in-memory service instances. Use [`tower::ServiceExt::oneshot`] to send a
+single request without binding a TCP socket:
+
+```rust
+use tower::ServiceExt;
+use hyper::{Request, StatusCode};
+use axum::body::Body;
+
+#[tokio::test]
+async fn my_test() {
+    let response = test_app()
+        .oneshot(Request::builder().uri("/api/status").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+```
+
+### Adding new tests
+
+1. Create a new file under `tests/integration/`, e.g. `my_feature_test.rs`.
+2. Declare it in `tests/integration/mod.rs`:
+   ```rust
+   pub mod my_feature_test;
+   ```
+3. Write `#[tokio::test]` functions — no extra setup required.
 Seeds populate:
 - `users` table with two default accounts (`admin`, `dev`)
 - `feature_flags` table with baseline flags (`new_dashboard`, `beta_api`)
+
+## Database Migrations (Backup Service)
+
+The backup service runs inline DDL on startup to create the `backups` table
+if it does not already exist. No external migration tool is required.
+## Configuration Hot-Reload
+
+The backend supports hot-reloading configuration from `config.json` without restarting the server.
+
+### Configuration Structure
+
+```rust
+pub struct AppConfig {
+    pub server: ServerConfig,
+    pub database: DatabaseConfig,
+    pub redis: RedisConfig,
+    pub log_level: String,
+}
+```
+
+### Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/config` | Retrieve current configuration (sanitized) |
+| `POST` | `/api/config/reload` | Trigger a reload from `config.json` |
+
+### Usage
+
+1. Create a `config.json` in the root directory.
+2. Update values in the file.
+3. Call `POST /api/config/reload` to apply changes.
+
+## Type-Safe API Contracts
+
+Crucible uses a typed contract system for all API endpoints to ensure consistency and reliability.
+
+### Standard Response Envelope
+
+All successful API responses follow the standard envelope:
+
+```json
+{
+  "status": "success",
+  "data": { ... }
+}
+```
+
+### Error Handling
+
+Errors return a standardized error object with HTTP status codes:
+
+```json
+{
+  "error": "Human readable error message",
+  "code": "ERROR_CODE_STRING",
+  "details": null
+}
+```
+
+### Validation
+
+The `ValidatedJson<T>` extractor automatically validates incoming requests using the `Validate` trait.
+
+```rust
+impl Validate for ProfileTriggerRequest {
+    fn validate(&self) -> Result<(), String> {
+        if self.duration_secs == 0 {
+            return Err("duration_secs must be > 0".to_string());
+        }
+        Ok(())
+    }
+}
+```
 ## Structure
 - `src/api/` – API handlers and routing
 - `src/config/` – Environment configuration

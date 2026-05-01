@@ -7,6 +7,7 @@ use tower::ServiceExt;
 
 use backend::api::handlers::profiling::{get_system_status, AppState};
 use backend::services::{error_recovery::ErrorManager, sys_metrics::MetricsExporter};
+use backend::config::{AppConfig, reload::ConfigManager};
 
 /// Build a test router with the status endpoint.
 fn build_app() -> Router {
@@ -14,6 +15,7 @@ fn build_app() -> Router {
         db: None,
         metrics_exporter: Arc::new(MetricsExporter::new()),
         error_manager: Arc::new(ErrorManager::new()),
+        config_manager: Arc::new(ConfigManager::new(AppConfig::default())),
     });
     Router::new()
         .route("/api/status", get(get_system_status))
@@ -101,7 +103,9 @@ async fn test_status_response_shape() {
     let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
 
-    assert!(json.get("status").is_some());
-    assert!(json.get("metrics").is_some());
-    assert!(json.get("active_recovery_tasks").is_some());
+    assert_eq!(json["status"], "success");
+    assert!(json.get("data").is_some());
+    assert!(json["data"].get("status").is_some());
+    assert!(json["data"].get("uptime_secs").is_some());
+    assert!(json["data"].get("active_recovery_tasks").is_some());
 }

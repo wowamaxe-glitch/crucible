@@ -1,3 +1,4 @@
+use axum::extract::State;
 use axum::{Json, response::IntoResponse, extract::State};
 use serde::{Serialize, Deserialize};
 use tracing::{info, instrument, info_span};
@@ -16,6 +17,8 @@ use crate::services::{
     log_aggregator::LogAggregator,
     tracing::TracingService,
 };
+use crate::config::reload::ConfigManager;
+use crate::api::contracts::{ApiResponse, SystemStatus, ProfileTriggerRequest, ProfileTriggerResponse, ValidatedJson};
 use sqlx::PgPool;
 use redis::Client as RedisClient;
 
@@ -23,6 +26,7 @@ pub struct AppState {
     pub db: Option<sqlx::PgPool>,
     pub metrics_exporter: Arc<MetricsExporter>,
     pub error_manager: Arc<ErrorManager>,
+    pub config_manager: Arc<ConfigManager>,
     pub log_aggregator: Arc<LogAggregator>,
     pub redis: RedisClient,
 }
@@ -189,6 +193,7 @@ pub async fn get_system_status(State(state): State<Arc<AppState>>) -> impl IntoR
 #[instrument(skip_all, fields(http.method = "GET", http.route = "/api/status"))]
 pub async fn get_system_status(
     State(state): State<Arc<AppState>>,
+) -> ApiResponse<SystemStatus> {
 ) -> impl IntoResponse {
     let span = info_span!("system.status");
     let _enter = span.enter();
@@ -205,6 +210,12 @@ pub async fn get_system_status(
     let recovery_tasks = state.error_manager.get_active_tasks().await;
     drop(_recovery_enter);
 
+    ApiResponse::new(SystemStatus {
+        status: "healthy".to_string(),
+        uptime_secs: metrics.uptime,
+        memory_used_bytes: metrics.memory_usage,
+        active_recovery_tasks: recovery_tasks.len(),
+    })
     Json(serde_json::json!({
         "status": "healthy",
         "metrics": metrics,
@@ -217,6 +228,16 @@ pub async fn trigger_profile_collection(State(_state): State<Arc<AppState>>) -> 
 #[instrument(skip_all, fields(http.method = "POST", http.route = "/api/profile"))]
 pub async fn trigger_profile_collection(
     State(_state): State<Arc<AppState>>,
+    ValidatedJson(payload): ValidatedJson<ProfileTriggerRequest>,
+) -> ApiResponse<ProfileTriggerResponse> {
+    // In a real implementation, this would trigger a CPU/Memory profile
+    // using the provided payload (duration, sample rate, etc.)
+    
+    ApiResponse::new(ProfileTriggerResponse {
+        profile_id: uuid::Uuid::new_v4(),
+        message: format!("Profiling collection triggered for label: {}", payload.label),
+        estimated_completion: chrono::Utc::now() + chrono::Duration::seconds(payload.duration_secs as i64),
+    })
 ) -> impl IntoResponse {
     let span = info_span!("profiling.collection");
     let _enter = span.enter();
