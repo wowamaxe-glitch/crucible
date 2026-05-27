@@ -1,8 +1,12 @@
+//! Application configuration.
+
 pub mod reload;
 
 use serde::{Deserialize, Serialize};
+use std::env;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Environment-based application configuration.
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AppConfig {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
@@ -43,14 +47,10 @@ impl Default for AppConfig {
             },
             log_level: "info".to_string(),
         }
-//! Application configuration.
+    }
+}
 
-pub mod reload;
-
-use serde::Deserialize;
-use std::env;
-
-/// Environment-based application configuration.
+/// Simple environment-based config loader (used by main.rs).
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub database_url: String,
@@ -69,7 +69,9 @@ impl Config {
             database_url: env::var("DATABASE_URL")
                 .unwrap_or_else(|_| "postgres://postgres:password@localhost:5432/backend".into()),
             redis_url: env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".into()),
-            server_port: env::var("PORT").unwrap_or_else(|_| "3000".into()).parse()?,
+            server_port: env::var("PORT")
+                .unwrap_or_else(|_| "3000".into())
+                .parse()?,
             environment: env::var("APP_ENV").unwrap_or_else(|_| "development".into()),
             log_level: env::var("LOG_LEVEL").unwrap_or_else(|_| "info".into()),
         })
