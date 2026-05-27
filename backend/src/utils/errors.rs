@@ -9,6 +9,9 @@ use serde_json::json;
 use thiserror::Error;
 use tracing::error;
 
+/// Result type alias for backend services and handlers.
+pub type Result<T> = std::result::Result<T, AppError>;
+
 // ---------------------------------------------------------------------------
 // Domain error types
 // ---------------------------------------------------------------------------
@@ -238,11 +241,24 @@ impl From<DatabaseError> for AppError {
             DatabaseError::NotFound(msg) => AppError::NotFound(msg),
             DatabaseError::UniqueViolation(msg) => AppError::Conflict(msg),
             DatabaseError::ForeignKeyViolation(msg) => AppError::BadRequest(msg),
-            DatabaseError::Connection(msg) | DatabaseError::Query(sqlx::Error::PoolTimedOut) => {
-                AppError::Internal(msg.to_string())
+            DatabaseError::Connection(msg) => AppError::Internal(msg),
+            DatabaseError::Query(sqlx::Error::PoolTimedOut) => {
+                AppError::Internal("database pool timed out".into())
             }
             DatabaseError::Query(e) => AppError::Database(e),
         }
+    }
+}
+
+impl From<sqlx::Error> for AppError {
+    fn from(err: sqlx::Error) -> Self {
+        AppError::Database(err)
+    }
+}
+
+impl From<redis::RedisError> for AppError {
+    fn from(err: redis::RedisError) -> Self {
+        AppError::Redis(err)
     }
 }
 
@@ -320,6 +336,23 @@ mod tests {
     fn database_error_unique_violation_converts() {
         let e: AppError = DatabaseError::UniqueViolation("email".into()).into();
         assert!(matches!(e, AppError::Conflict(_)));
+    }
+
+    #[test]
+    fn sqlx_error_converts_to_app_error() {
+        let err = sqlx::Error::RowNotFound;
+        let e: AppError = err.into();
+        assert!(matches!(e, AppError::Database(_)));
+    }
+
+    #[tokio::test]
+    async fn app_error_into_response_renders_json() {
+        let e = AppError::NotFound("contract".into());
+        let response = e.into_response();
+        let body = response.into_body();
+        let body = axum::body::to_bytes(body, usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["code"], "not_found");
     }
 
     #[test]
