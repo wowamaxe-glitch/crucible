@@ -1182,3 +1182,54 @@ These include:
 - `TlsConfig::key_path`
 
 These fields implement a custom `Debug` trait that automatically replaces their contents with `"[REDACTED]"` to prevent accidental leakage in application logs or panic traces. Additionally, they are marked to skip serialization.
+
+## Testing
+
+This project utilizes highly isolated, in-process integration testing leveraging Axum's `oneshot` capability.
+
+### Running Tests
+Execute the test suite natively using Cargo:
+```bash
+cargo test
+```
+
+### Environment Requirements
+Integration tests require a running PostgreSQL instance and Redis instance.
+- `TEST_DATABASE_URL`: (Default: `postgres://postgres:password@localhost/crucible_test`)
+- `TEST_REDIS_URL`: (Default: `redis://127.0.0.1/1`)
+
+### Test Database Isolation Strategy
+We utilize **Isolated Schemas** rather than database truncation or transactions. For every `#[tokio::test]` executed, the `TestContext` dynamically creates a completely isolated PostgreSQL schema (e.g. `test_a1b2c3d4...`) and maps the SQLx connection pool strictly to that `search_path`.
+- **Parallelization**: Tests never share state. They run fully concurrently.
+- **Safety**: No cross-test pollution. The schema is dropped entirely on `Drop`.
+
+### Writing a New Integration Test
+You can utilize the `ApiTestClient` located in `src/test_utils/client.rs`.
+
+```rust
+use crate::test_utils::{setup, client::ApiTestClient};
+
+#[tokio::test]
+async fn test_create_resource() {
+    // 1. Spin up isolated context (DB, Redis, Router)
+    let ctx = setup().await;
+    let client = ApiTestClient::new(ctx.app);
+
+    // 2. Perform fluent API request
+    let payload = serde_json::json!({ "name": "Crucible" });
+    
+    let response = client.post("/api/resources")
+        .bearer("mock-token")
+        .json(&payload)
+        .send()
+        .await;
+
+    // 3. Chain assertions and extract typed body
+    response
+        .assert_status(StatusCode::CREATED)
+        .assert_json_field("name", "Crucible");
+}
+```
+
+### Adding New Fixture Helpers
+To add reusable database states, write standard async functions in `src/test_utils/fixtures.rs` that accept `&PgPool`. Because schemas are isolated, fixtures never need to worry about cleaning up after themselves.

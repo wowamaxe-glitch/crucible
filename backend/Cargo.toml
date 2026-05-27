@@ -73,6 +73,7 @@ rust_decimal_macros = "1.35"
 criterion = { version = "0.5", features = ["async_tokio"] }
 temp-env = "0.3.6"
 toml = "0.8.12"
+http-body-util = "0.1"
 
 [profile.release]
 opt-level = 3
