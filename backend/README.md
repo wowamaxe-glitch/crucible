@@ -251,10 +251,68 @@ Extensions enabled: `uuid-ossp`, `pgcrypto`, `citext`
 
 ## API Endpoints
 
-| Method | Path             | Description                    |
-|--------|------------------|--------------------------------|
-| `GET`  | `/health`        | Health check (DB + Redis)      |
-| `GET`  | `/api/v1/status` | API status and version info    |
+| Method   | Path                                              | Description                          |
+|----------|---------------------------------------------------|--------------------------------------|
+| `GET`    | `/health`                                         | Health check (DB + Redis)            |
+| `GET`    | `/api/v1/status`                                  | API status and version info          |
+| `POST`   | `/api/v1/deployments`                             | Register a new deployment            |
+| `GET`    | `/api/v1/deployments/:id`                         | Get a deployment by UUID             |
+| `GET`    | `/api/v1/deployments/contract/:contract_id`       | List deployments for a contract      |
+| `PATCH`  | `/api/v1/deployments/:id/status`                  | Update deployment health status      |
+
+### Deploy Health
+
+The deploy-health API tracks the lifecycle and health of contract deployments.
+
+#### Register a deployment
+
+```http
+POST /api/v1/deployments
+Content-Type: application/json
+
+{
+  "contract_id": "CAABC123...",
+  "version": "1.2.0",
+  "metadata": { "network": "testnet" }
+}
+```
+
+Response `201 Created`:
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "contract_id": "CAABC123...",
+  "version": "1.2.0",
+  "status": "pending",
+  "deployed_at": "2026-05-27T22:00:00Z",
+  "last_checked_at": null,
+  "error_message": null,
+  "metadata": { "network": "testnet" },
+  "created_at": "2026-05-27T22:00:00Z",
+  "updated_at": "2026-05-27T22:00:00Z"
+}
+```
+
+#### Update deployment status
+
+```http
+PATCH /api/v1/deployments/:id/status
+Content-Type: application/json
+
+{
+  "status": "healthy"
+}
+```
+
+Valid status values: `pending` | `healthy` | `degraded` | `failed`.
+
+Pass `"error_message"` alongside `"status": "failed"` or `"status": "degraded"` to record a reason.
+
+#### Caching
+
+Single-deployment and contract-list responses are cached in Redis for 30 seconds.
+A `PATCH` to update status invalidates the per-deployment cache entry immediately.
 
 ## Production Deployment
 
