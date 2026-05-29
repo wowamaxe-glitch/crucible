@@ -36,30 +36,15 @@ use crate::config::AppConfig;
 /// Errors that can occur during configuration reload (ConfigManager).
 #[derive(Debug, Error)]
 pub enum ConfigReloadError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-
-    #[error("Serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
-
-    #[error("Internal error: {0}")]
-    Internal(String),
-
-    #[error("Invalid configuration: {0}")]
-    Invalid(String),
+    #[error("Configuration load error: {0}")]
+    LoadError(#[from] ConfigError),
 }
 
 impl IntoResponse for ConfigReloadError {
     fn into_response(self) -> axum::response::Response {
-        let (status, message) = match self {
-            ConfigReloadError::Io(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
-            ConfigReloadError::Serialization(_) => (StatusCode::BAD_REQUEST, self.to_string()),
-            ConfigReloadError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
-            ConfigReloadError::Invalid(_) => (StatusCode::BAD_REQUEST, self.to_string()),
-        };
-
+        let status = StatusCode::INTERNAL_SERVER_ERROR;
         let body = Json(serde_json::json!({
-            "error": message,
+            "error": self.to_string(),
             "status": status.as_u16()
         }));
 
@@ -171,7 +156,7 @@ pub async fn handle_reload(
 
 /// `GET /api/config` — return the current configuration (sanitized).
 pub async fn handle_get_config(
-    State(state): State<Arc<crate::api::handlers::profiling::AppState>>,
+    State(manager): State<Arc<ConfigManager>>,
 ) -> impl IntoResponse {
     let config = state.config_manager.load();
     Json(config)

@@ -2,6 +2,7 @@
 
 pub mod reload;
 
+use config::{Config, Environment as ConfigEnvironment, File, FileFormat};
 use serde::{Deserialize, Serialize};
 use std::env;
 
@@ -14,38 +15,109 @@ pub struct AppConfig {
     pub log_level: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServerConfig {
-    pub host: String,
-    pub port: u16,
+impl FromStr for Environment {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "development" | "dev" => Ok(Environment::Development),
+            "staging" | "stg" => Ok(Environment::Staging),
+            "production" | "prod" => Ok(Environment::Production),
+            _ => Err(format!("Unknown environment: {}", s)),
+        }
+    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DatabaseConfig {
-    pub url: String,
-    pub max_connections: u32,
+impl Environment {
+    /// Returns the string representation of the environment.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Environment::Development => "development",
+            Environment::Staging => "staging",
+            Environment::Production => "production",
+        }
+    }
+
+    /// Loads the environment from the `APP_ENV` environment variable.
+    /// Defaults to `Development` if the variable is missing or unparseable.
+    pub fn from_env() -> Self {
+        match std::env::var("APP_ENV") {
+            Ok(val) => match Environment::from_str(&val) {
+                Ok(env) => env,
+                Err(e) => {
+                    tracing::warn!("Failed to parse APP_ENV: {}. Defaulting to Development.", e);
+                    Environment::Development
+                }
+            },
+            Err(_) => {
+                tracing::warn!("APP_ENV environment variable not set. Defaulting to Development.");
+                Environment::Development
+            }
+        }
+    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RedisConfig {
-    pub url: String,
+/// The root configuration object.
+///
+/// **Usage Pattern:**
+/// `AppConfig::load` should be called exactly once during application startup.
+/// The resulting configuration should be wrapped in an `std::sync::Arc<AppConfig>` and
+/// shared across the application state to ensure consistent configuration reads without
+/// cloning large structs or repeatedly parsing environments.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AppConfig {
+    pub server: ServerConfig,
+    pub database: DatabaseConfig,
+    pub redis: RedisConfig,
+    pub observability: ObservabilityConfig,
 }
 
+// Temporary fallback for testing/reloading if missing in main.rs
 impl Default for AppConfig {
     fn default() -> Self {
-        Self {
-            server: ServerConfig {
-                host: "0.0.0.0".to_string(),
-                port: 3000,
-            },
-            database: DatabaseConfig {
-                url: "postgres://postgres:postgres@localhost:5432/crucible".to_string(),
-                max_connections: 5,
-            },
-            redis: RedisConfig {
-                url: "redis://127.0.0.1:6379".to_string(),
-            },
-            log_level: "info".to_string(),
+        Self::load(Environment::Development).expect("Failed to load default configuration")
+    }
+}
+
+impl AppConfig {
+    /// Loads the configuration by layering default settings, environment-specific
+    /// settings, and finally environment variable overrides.
+    pub fn load(env: Environment) -> Result<Self, ConfigError> {
+        // Embed the TOML files into the binary to avoid distributing config files in production.
+        let default_config = include_str!("defaults/default.toml");
+        
+        let env_config = match env {
+            Environment::Development => include_str!("defaults/development.toml"),
+            Environment::Staging => include_str!("defaults/staging.toml"),
+            Environment::Production => include_str!("defaults/production.toml"),
+        };
+
+        let builder = Config::builder()
+            // 1. Base configuration defaults
+            .add_source(File::from_str(default_config, FileFormat::Toml))
+            // 2. Environment-specific overrides
+            .add_source(File::from_str(env_config, FileFormat::Toml))
+            // 3. Environment variables (e.g., APP_DATABASE__URL overrides database.url)
+            .add_source(
+                ConfigEnvironment::with_prefix("APP")
+                    .separator("__")
+                    .ignore_empty(true),
+            );
+
+        let config_result = builder.build().map_err(|e| ConfigError::LoadError(e.to_string()))?;
+        let app_config: AppConfig = config_result.try_deserialize().map_err(|e| ConfigError::LoadError(e.to_string()))?;
+
+        app_config.validate(env)?;
+
+        Ok(app_config)
+    }
+
+    /// Validates the loaded configuration according to the current environment's rules.
+    fn validate(&self, env: Environment) -> Result<(), ConfigError> {
+        let mut errors = Vec::new();
+
+        if env == Environment::Production && self.server.tls.is_none() {
+            errors.push("TLS configuration is strictly required in the Production environment.".to_string());
         }
     }
 }

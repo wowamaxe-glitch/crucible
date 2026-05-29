@@ -170,7 +170,7 @@ pub async fn get_health(
         "Health check completed"
     );
 
-    Ok(Json(response))
+    Ok(Json(response));
 }
 
 /// `GET /api/v1/profiling/prometheus` — Prometheus-compatible metrics.
