@@ -31,14 +31,18 @@ pub struct ErrorResponse {
 pub fn assert_validation_error(response: TestResponse, expected_field: &str) {
     let resp = response.assert_status(StatusCode::UNPROCESSABLE_ENTITY);
     let payload: ErrorResponse = resp.json();
-    
-    let has_field = payload.errors
+
+    let has_field = payload
+        .errors
         .unwrap_or_default()
         .iter()
         .any(|e| e.field == expected_field);
 
     if !has_field {
-        panic!("Validation error for field '{}' was not found in response.", expected_field);
+        panic!(
+            "Validation error for field '{}' was not found in response.",
+            expected_field
+        );
     }
 }
 
@@ -46,8 +50,11 @@ pub fn assert_validation_error(response: TestResponse, expected_field: &str) {
 pub fn assert_unauthorized(response: TestResponse) {
     let resp = response.assert_status(StatusCode::UNAUTHORIZED);
     let payload: ErrorResponse = resp.json();
-    
-    assert!(!payload.error.is_empty(), "Expected non-empty error message in 401 response");
+
+    assert!(
+        !payload.error.is_empty(),
+        "Expected non-empty error message in 401 response"
+    );
 }
 
 /// Asserts a 404 Not Found response.

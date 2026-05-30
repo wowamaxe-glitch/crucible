@@ -25,7 +25,11 @@ impl JobHandler for HealthCheckJob {
         info!("PostgreSQL connection is healthy");
 
         // Ping Redis
-        let mut redis_conn = ctx.redis.get_async_connection().await.map_err(JobError::RedisError)?;
+        let mut redis_conn = ctx
+            .redis
+            .get_async_connection()
+            .await
+            .map_err(JobError::RedisError)?;
         redis::cmd("PING")
             .query_async::<_, String>(&mut redis_conn)
             .await
@@ -45,7 +49,10 @@ pub struct CleanupJob {
 impl JobHandler for CleanupJob {
     #[instrument(skip_all, fields(job_name = ctx.job_name))]
     async fn run(&self, ctx: JobContext) -> Result<(), JobError> {
-        info!("Running job history cleanup job (retention: {} days)", self.retain_days);
+        info!(
+            "Running job history cleanup job (retention: {} days)",
+            self.retain_days
+        );
 
         let deleted_count = cleanup_old_runs(&ctx.pool, self.retain_days).await?;
         info!("Cleaned up {} old job run records", deleted_count);

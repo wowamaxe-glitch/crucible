@@ -37,11 +37,16 @@ async fn profile_body_contains_profile_id() {
         .await
         .unwrap();
 
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&bytes).expect("response must be JSON");
 
     assert_eq!(json["message"], "Profiling collection triggered");
-    assert!(json["profile_id"].is_string(), "profile_id must be a string");
+    assert!(
+        json["profile_id"].is_string(),
+        "profile_id must be a string"
+    );
 
     // profile_id should be a valid UUID
     let id = json["profile_id"].as_str().unwrap();
@@ -64,11 +69,18 @@ async fn profile_ids_are_unique_per_request() {
     let r1 = app.clone().oneshot(make_request()).await.unwrap();
     let r2 = app.oneshot(make_request()).await.unwrap();
 
-    let b1 = axum::body::to_bytes(r1.into_body(), usize::MAX).await.unwrap();
-    let b2 = axum::body::to_bytes(r2.into_body(), usize::MAX).await.unwrap();
+    let b1 = axum::body::to_bytes(r1.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let b2 = axum::body::to_bytes(r2.into_body(), usize::MAX)
+        .await
+        .unwrap();
 
     let j1: serde_json::Value = serde_json::from_slice(&b1).unwrap();
     let j2: serde_json::Value = serde_json::from_slice(&b2).unwrap();
 
-    assert_ne!(j1["profile_id"], j2["profile_id"], "each request must produce a unique profile_id");
+    assert_ne!(
+        j1["profile_id"], j2["profile_id"],
+        "each request must produce a unique profile_id"
+    );
 }

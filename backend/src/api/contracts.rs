@@ -1,6 +1,6 @@
 use axum::{
     async_trait,
-    extract::{FromRequest, Request, Json},
+    extract::{FromRequest, Json, Request},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -138,11 +138,12 @@ where
     type Rejection = ApiError;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-        let Json(value) = Json::<T>::from_request(req, state).await
-            .map_err(|e: axum::extract::rejection::JsonRejection| ApiError::Validation(e.to_string()))?;
-        
+        let Json(value) = Json::<T>::from_request(req, state).await.map_err(
+            |e: axum::extract::rejection::JsonRejection| ApiError::Validation(e.to_string()),
+        )?;
+
         value.validate().map_err(ApiError::Validation)?;
-        
+
         Ok(ValidatedJson(value))
     }
 }
@@ -237,7 +238,7 @@ mod tests {
     fn test_api_error_status_codes() {
         let err = ApiError::Validation("invalid".to_string());
         assert_eq!(err.status_code(), StatusCode::BAD_REQUEST);
-        
+
         let err = ApiError::Internal("oops".to_string());
         assert_eq!(err.status_code(), StatusCode::INTERNAL_SERVER_ERROR);
     }

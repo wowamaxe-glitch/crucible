@@ -28,8 +28,8 @@ impl ObservabilityConfig {
     /// Initializes the tracing subscriber globally based on the environment.
     /// Development uses a pretty formatter, while Staging/Production use JSON.
     pub fn init_tracing(&self, env: crate::config::Environment) {
-        let filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new(&self.log_level));
+        let filter =
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&self.log_level));
 
         match env {
             crate::config::Environment::Development => {

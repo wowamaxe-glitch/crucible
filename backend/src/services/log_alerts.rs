@@ -1,3 +1,4 @@
+use crate::error::AppError;
 use axum::{
     extract::{Path, State},
     routing::{get, post},
@@ -7,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
 use uuid::Uuid;
-use crate::error::AppError;
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct LogAlertRule {
@@ -53,7 +53,7 @@ async fn create_rule(
 ) -> Result<Json<LogAlertRule>, AppError> {
     let rule = sqlx::query_as::<_, LogAlertRule>(
         "INSERT INTO log_alert_rules (name, pattern, threshold, interval_seconds) 
-         VALUES ($1, $2, $3, $4) RETURNING *"
+         VALUES ($1, $2, $3, $4) RETURNING *",
     )
     .bind(payload.name)
     .bind(payload.pattern)
@@ -83,7 +83,7 @@ async fn get_rule(
         .fetch_optional(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Rule not found: {}", id)))?;
-    
+
     Ok(Json(rule))
 }
 
@@ -98,29 +98,32 @@ async fn ingest_log(
     Json(log): Json<LogEntry>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     tracing::info!("Processing log: {}", log.message);
-    
+
     // 1. Fetch all enabled rules
-    let rules = sqlx::query_as::<_, LogAlertRule>(
-        "SELECT * FROM log_alert_rules WHERE is_enabled = true"
-    )
-    .fetch_all(&state.db)
-    .await?;
+    let rules =
+        sqlx::query_as::<_, LogAlertRule>("SELECT * FROM log_alert_rules WHERE is_enabled = true")
+            .fetch_all(&state.db)
+            .await?;
 
     let mut matched_rules = Vec::new();
 
     for rule in rules {
         if log.message.contains(&rule.pattern) {
             tracing::debug!("Log matched pattern for rule: {}", rule.name);
-            
+
             // 2. Increment count in Redis with TTL
-            let redis_key = format!("alert_count:{}:{}", rule.id, chrono::Utc::now().timestamp() / rule.interval_seconds as i64);
+            let redis_key = format!(
+                "alert_count:{}:{}",
+                rule.id,
+                chrono::Utc::now().timestamp() / rule.interval_seconds as i64
+            );
             let mut conn = state.redis.get_async_connection().await?;
-            
+
             let count: i32 = redis::cmd("INCR")
                 .arg(&redis_key)
                 .query_async(&mut conn)
                 .await?;
-            
+
             // Set TTL if new key
             if count == 1 {
                 let _: () = redis::cmd("EXPIRE")
@@ -132,23 +135,27 @@ async fn ingest_log(
 
             // 3. Check if threshold reached
             if count >= rule.threshold {
-                tracing::warn!("Threshold reached for rule: {}. Triggering alert!", rule.name);
-                
+                tracing::warn!(
+                    "Threshold reached for rule: {}. Triggering alert!",
+                    rule.name
+                );
+
                 // 4. Persist alert
-                sqlx::query(
-                    "INSERT INTO log_alerts (rule_id, message) VALUES ($1, $2)"
-                )
-                .bind(rule.id)
-                .bind(format!("Threshold of {} reached for pattern '{}'", rule.threshold, rule.pattern))
-                .execute(&state.db)
-                .await?;
-                
+                sqlx::query("INSERT INTO log_alerts (rule_id, message) VALUES ($1, $2)")
+                    .bind(rule.id)
+                    .bind(format!(
+                        "Threshold of {} reached for pattern '{}'",
+                        rule.threshold, rule.pattern
+                    ))
+                    .execute(&state.db)
+                    .await?;
+
                 matched_rules.push(rule.name);
             }
         }
     }
-    
-    Ok(Json(serde_json::json!({ 
+
+    Ok(Json(serde_json::json!({
         "status": "processed",
         "matched": matched_rules
     })))
@@ -163,39 +170,37 @@ mod tests {
         let pattern = "error";
         let message = "This is an error message";
         assert!(message.contains(pattern));
-//! Log alerting service for monitoring log entries and triggering alerts.
-//!
-//! This module provides threshold-based alerting on top of the log aggregation
-//! pipeline. Alerts are evaluated against configurable rules and can be
-//! dispatched to multiple channels (in-memory queue, Redis pub/sub).
-//!
-//! # Example
-//! ```rust,no_run
-//! use backend::services::log_alerts::{AlertManager, AlertRule, AlertSeverity};
-//!
-//! # async fn example() {
-//! let manager = AlertManager::new();
-//! manager.add_rule(AlertRule {
-//!     id: uuid::Uuid::new_v4(),
-//!     name: "High error rate".to_string(),
-//!     pattern: "ERROR".to_string(),
-//!     severity: AlertSeverity::Critical,
-//!     threshold: 5,
-//!     window_secs: 60,
-//! }).await;
-//! # }
-//! ```
+    }
+}
 
-#![allow(dead_code)]
+// Log alerting service for monitoring log entries and triggering alerts.
+//
+// This module provides threshold-based alerting on top of the log aggregation
+// pipeline. Alerts are evaluated against configurable rules and can be
+// dispatched to multiple channels (in-memory queue, Redis pub/sub).
+//
+// # Example
+// ```rust,no_run
+// use backend::services::log_alerts::{AlertManager, AlertRule, AlertSeverity};
+//
+// # async fn example() {
+// let manager = AlertManager::new();
+// manager.add_rule(AlertRule {
+//     id: uuid::Uuid::new_v4(),
+//     name: "High error rate".to_string(),
+//     pattern: "ERROR".to_string(),
+//     severity: AlertSeverity::Critical,
+//     threshold: 5,
+//     window_secs: 60,
+// }).await;
+// # }
+// ```
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
-use uuid::Uuid;
 
 use crate::services::log_aggregator::LogEntry;
 

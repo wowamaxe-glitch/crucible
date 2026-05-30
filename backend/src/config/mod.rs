@@ -103,7 +103,7 @@ impl AppConfig {
     pub fn load(env: Environment) -> Result<Self, ConfigError> {
         // Embed the TOML files into the binary to avoid distributing config files in production.
         let default_config = include_str!("defaults/default.toml");
-        
+
         let env_config = match env {
             Environment::Development => include_str!("defaults/development.toml"),
             Environment::Staging => include_str!("defaults/staging.toml"),
@@ -122,8 +122,12 @@ impl AppConfig {
                     .ignore_empty(true),
             );
 
-        let config_result = builder.build().map_err(|e| ConfigError::LoadError(e.to_string()))?;
-        let app_config: AppConfig = config_result.try_deserialize().map_err(|e| ConfigError::LoadError(e.to_string()))?;
+        let config_result = builder
+            .build()
+            .map_err(|e| ConfigError::LoadError(e.to_string()))?;
+        let app_config: AppConfig = config_result
+            .try_deserialize()
+            .map_err(|e| ConfigError::LoadError(e.to_string()))?;
 
         app_config.validate(env)?;
 
@@ -135,7 +139,9 @@ impl AppConfig {
         let mut errors = Vec::new();
 
         if env == Environment::Production && self.server.tls.is_none() {
-            errors.push("TLS configuration is strictly required in the Production environment.".to_string());
+            errors.push(
+                "TLS configuration is strictly required in the Production environment.".to_string(),
+            );
         }
 
         if self.database.url.is_empty() {

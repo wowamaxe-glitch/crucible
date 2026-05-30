@@ -1,13 +1,13 @@
-#! Test utilities module.
-///
+//! Test utilities module.
+//!
 //! This module provides mock services and factory functions for creating
 //! domain objects in tests.
 
-pub mod mocks;
-pub mod factories;
 pub mod assertions;
 pub mod client;
+pub mod factories;
 pub mod fixtures;
+pub mod mocks;
 
 #[cfg(test)]
 pub mod tests;
@@ -26,14 +26,14 @@ pub struct TestContext {
     pub redis: redis::Client,
     pub schema_name: String,
     // Store root pool to drop the schema later
-    root_db: PgPool, 
+    root_db: PgPool,
 }
 
 impl Drop for TestContext {
     fn drop(&mut self) {
         let schema_name = self.schema_name.clone();
         let root_db = self.root_db.clone();
-        
+
         // Spawn a background task to forcefully drop the isolated schema once the test completes
         tokio::spawn(async move {
             let drop_query = format!("DROP SCHEMA IF EXISTS {} CASCADE;", schema_name);
@@ -47,9 +47,9 @@ pub async fn setup() -> TestContext {
     // 1. Resolve environment connections
     let db_url = env::var("TEST_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:password@localhost/crucible_test".to_string());
-    
-    let redis_url = env::var("TEST_REDIS_URL")
-        .unwrap_or_else(|_| "redis://127.0.0.1/1".to_string()); // DB 1 for tests
+
+    let redis_url =
+        env::var("TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1/1".to_string()); // DB 1 for tests
 
     // 2. Generate isolated schema name
     let schema_name = format!("test_{}", Uuid::new_v4().to_string().replace('-', ""));
@@ -85,7 +85,7 @@ pub async fn setup() -> TestContext {
 
     // 7. Build Axum Router (Assuming backend::api::app() exists and accepts dependencies)
     // Note: Adjust according to actual router constructor signature
-    let app = Router::new(); 
+    let app = Router::new();
 
     TestContext {
         app,
@@ -97,5 +97,5 @@ pub async fn setup() -> TestContext {
 }
 pub mod db;
 
-pub use factories::*;
 pub use db::*;
+pub use factories::*;

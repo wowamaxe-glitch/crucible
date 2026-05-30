@@ -9,7 +9,10 @@ use backend::api::handlers::dashboard::{get_dashboard, DashboardState};
 use backend::{
     api::handlers::{dashboard, errors, profiling, stellar},
     api::middleware::logging::logging_middleware,
-    config::{AppConfig, Environment, reload::{ConfigManager, handle_reload, handle_get_config}},
+    config::{
+        reload::{handle_get_config, handle_reload, ConfigManager},
+        AppConfig, Environment,
+    },
     jobs::{monitor_transaction, TransactionMonitorJob},
     services::{
         error_recovery::ErrorManager,
@@ -50,7 +53,9 @@ async fn main() -> Result<(), anyhow::Error> {
     )
     .with_environment(env.as_str().to_string())
     .with_otlp_endpoint(
-        config.observability.tracing_endpoint
+        config
+            .observability
+            .tracing_endpoint
             .clone()
             .unwrap_or_else(|| "http://localhost:4317".to_string()),
     );
@@ -64,7 +69,9 @@ async fn main() -> Result<(), anyhow::Error> {
     let db_span = TracingService::db_query_span("CONNECT postgresql", "postgres", "CONNECT");
     let _db_enter = db_span.enter();
 
-    let db_pool = config.database.to_sqlx_pool_options()
+    let db_pool = config
+        .database
+        .to_sqlx_pool_options()
         .connect(&config.database.url)
         .await?;
 
@@ -168,12 +175,15 @@ async fn main() -> Result<(), anyhow::Error> {
             Router::new()
                 .route("/", get(get_dashboard))
                 .route("/metrics", get(dashboard::get_dashboard_metrics))
-                .route("/contracts/:contract_id/stats", get(dashboard::get_contract_stats))
+                .route(
+                    "/contracts/:contract_id/stats",
+                    get(dashboard::get_contract_stats),
+                )
                 .with_state(dashboard_state),
         )
         .nest(
             "/api/v1/errors",
-            errors::error_analytics_routes(db_pool.clone(), redis_conn_dashboard.clone())
+            errors::error_analytics_routes(db_pool.clone(), redis_conn_dashboard.clone()),
         )
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(middleware::from_fn_with_state(
@@ -185,7 +195,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .with_state(state); // fallback state for /api/config handlers
 
     let addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port).parse()?;
-    
+
     tracing::info!("Crucible backend listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -199,19 +209,19 @@ async fn main() -> Result<(), anyhow::Error> {
     );
 
     let server = axum::serve(listener, app);
-    
+
     let result = tokio::select! {
         res = server.with_graceful_shutdown(shutdown_signal()) => {
             tracing::info!("Signal received, stopping acceptance of new requests");
-            
+
             // Wait for server to finish shutting down (stops accepting new connections)
             match res {
                 Ok(()) => tracing::info!("Server stopped accepting new connections"),
                 Err(e) => tracing::error!("Server error during shutdown: {e}"),
             }
-            
+
             // Wait for in-flight requests to complete
-            tracing::info!("Waiting for in-flight requests to complete (timeout: {shutdown_timeout_secs}s)", 
+            tracing::info!("Waiting for in-flight requests to complete (timeout: {shutdown_timeout_secs}s)",
                          shutdown_timeout_secs = shutdown_timeout.as_secs());
             match tokio::time::timeout(shutdown_timeout, async {
                 // Give time for existing requests to complete
@@ -222,23 +232,23 @@ async fn main() -> Result<(), anyhow::Error> {
                 Ok(()) => tracing::info!("In-flight requests completed"),
                 Err(_) => tracing::warn!("Timeout waiting for in-flight requests to complete"),
             }
-            
+
             // Flush tracing and logging
             tracing::info!("Flushing tracing and logging subscribers");
             // In practice, we'd use a tracing subscriber guard to flush
             // For now, we note that tracing is flushed when the subscriber is dropped
             // which happens naturally at the end of the program
-            
+
             // Close database connection pool
             tracing::info!("Closing database connection pool");
             drop(state.db); // This closes the pool
-            
+
             // Close Redis connection
             tracing::info!("Closing Redis connection");
             drop(state.redis); // This closes the connection manager
-            
+
             tracing::info!("Graceful shutdown completed successfully");
-            
+
             res
         },
         _ = worker.run() => {
@@ -251,7 +261,7 @@ async fn main() -> Result<(), anyhow::Error> {
     if let Err(e) = &result {
         tracing::error!("Application error: {e}");
     }
-    
+
     result?;
 
     Ok(())

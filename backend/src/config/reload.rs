@@ -1,14 +1,9 @@
-use std::sync::Arc;
+use crate::config::{AppConfig, ConfigError, Environment};
 use arc_swap::ArcSwap;
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+use std::sync::Arc;
 use thiserror::Error;
 use tracing::{info, instrument};
-use crate::config::{AppConfig, Environment, ConfigError};
 
 /// Errors that can occur during configuration reload.
 #[derive(Debug, Error)]
@@ -58,7 +53,7 @@ impl ConfigManager {
 
         // Update the global configuration atomically
         self.current_config.store(Arc::new(new_config));
-        
+
         info!("Configuration successfully reloaded");
         Ok(())
     }
@@ -73,13 +68,14 @@ pub async fn handle_reload(
     State(manager): State<Arc<ConfigManager>>,
 ) -> Result<impl IntoResponse, ConfigReloadError> {
     manager.reload().await?;
-    Ok((StatusCode::OK, Json(serde_json::json!({ "status": "reloaded" }))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "reloaded" })),
+    ))
 }
 
 /// Axum handler to get the current configuration (sanitized).
-pub async fn handle_get_config(
-    State(manager): State<Arc<ConfigManager>>,
-) -> impl IntoResponse {
+pub async fn handle_get_config(State(manager): State<Arc<ConfigManager>>) -> impl IntoResponse {
     let config = manager.load();
     // Sensitive fields are already skipped or redacted by `serde(skip_serializing)` and custom `Debug`.
     // In this case, `AppConfig` derives Serialize, and sensitive fields have `#[serde(skip_serializing)]`.
@@ -118,22 +114,20 @@ pub async fn handle_get_config(
 // # Ok(())
 // # }
 // ```
-//!
-//! # Redis protocol
-//!
-//! Publish any non-empty string to `config:reload` to trigger a reload:
-//!
-//! ```text
-//! PUBLISH config:reload ""
-//! SET config:current '{"log_level":"info","max_connections":50,...}'
-//! PUBLISH config:reload "reload"
-//! ```
-//!
-//! The watcher reads `config:current` from Redis after every message on
-//! `config:reload`. If the key is absent or unparseable the existing config
-//! is kept and an error is logged.
-
-#![allow(dead_code)]
+//
+// # Redis protocol
+//
+// Publish any non-empty string to `config:reload` to trigger a reload:
+//
+// ```text
+// PUBLISH config:reload ""
+// SET config:current '{"log_level":"info","max_connections":50,...}'
+// PUBLISH config:reload "reload"
+// ```
+//
+// The watcher reads `config:current` from Redis after every message on
+// `config:reload`. If the key is absent or unparseable the existing config
+// is kept and an error is logged.
 
 use std::sync::Arc;
 

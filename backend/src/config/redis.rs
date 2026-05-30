@@ -45,7 +45,9 @@ impl fmt::Debug for RedisConfig {
 
 impl RedisConfig {
     /// Converts the primary config to Redis connection info.
-    pub fn to_connection_info(&self) -> Result<redis::ConnectionInfo, crate::config::error::ConfigError> {
+    pub fn to_connection_info(
+        &self,
+    ) -> Result<redis::ConnectionInfo, crate::config::error::ConfigError> {
         self.url.as_str().into_connection_info().map_err(|e| {
             crate::config::error::ConfigError::InvalidValue {
                 field: "redis.url".to_string(),
@@ -55,7 +57,9 @@ impl RedisConfig {
     }
 
     /// Converts the job queue config to Redis connection info.
-    pub fn to_job_queue_connection_info(&self) -> Result<redis::ConnectionInfo, crate::config::error::ConfigError> {
+    pub fn to_job_queue_connection_info(
+        &self,
+    ) -> Result<redis::ConnectionInfo, crate::config::error::ConfigError> {
         let url = self.job_queue_url.as_ref().unwrap_or(&self.url);
         url.as_str().into_connection_info().map_err(|e| {
             crate::config::error::ConfigError::InvalidValue {

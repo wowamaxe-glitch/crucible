@@ -134,7 +134,8 @@ async fn run_job_loop(
     redis: redis::Client,
     cancel_token: CancellationToken,
 ) {
-    let schedule = Schedule::from_str(&job.cron_expr).expect("cron expression must be pre-validated");
+    let schedule =
+        Schedule::from_str(&job.cron_expr).expect("cron expression must be pre-validated");
 
     loop {
         // Calculate the next execution time
@@ -216,7 +217,10 @@ async fn run_job_loop(
         execute_job_with_retries(&job, ctx).await;
 
         // Release the lock manually (optional, since it has a TTL, but good practice if it finishes early)
-        let _: redis::RedisResult<()> = redis::cmd("DEL").arg(&lock_key).query_async(&mut conn).await;
+        let _: redis::RedisResult<()> = redis::cmd("DEL")
+            .arg(&lock_key)
+            .query_async(&mut conn)
+            .await;
     }
 }
 
@@ -235,19 +239,17 @@ async fn execute_job_with_retries(job: &JobDefinition, ctx: JobContext) {
     };
 
     let handler_clone = job.handler.clone();
-    
+
     loop {
         attempt += 1;
         let ctx_clone = ctx.clone();
-        
+
         // Spawn a blocking task to handle panics safely.
         // Or rather, we spawn a standard tokio task to catch unwinds.
         let job_name = job.name.clone();
         let handler = handler_clone.clone();
 
-        let task = tokio::spawn(async move {
-            handler.run(ctx_clone).await
-        });
+        let task = tokio::spawn(async move { handler.run(ctx_clone).await });
 
         let timeout_duration = Duration::from_secs(job.timeout_secs);
         let result = tokio::time::timeout(timeout_duration, task).await;
@@ -266,7 +268,9 @@ async fn execute_job_with_retries(job: &JobDefinition, ctx: JobContext) {
                 warn!("Job failed on attempt {}/{}: {}", attempt, max_attempts, e);
                 if attempt >= max_attempts {
                     error!("Job failed permanently after {} attempts", max_attempts);
-                    if let Err(db_e) = record_failure(&ctx.pool, run_id, &e.to_string(), duration_ms).await {
+                    if let Err(db_e) =
+                        record_failure(&ctx.pool, run_id, &e.to_string(), duration_ms).await
+                    {
                         error!("Failed to record job failure: {}", db_e);
                     }
                     break;
@@ -278,11 +282,19 @@ async fn execute_job_with_retries(job: &JobDefinition, ctx: JobContext) {
                 } else {
                     format!("Job task cancelled or failed: {}", join_err)
                 };
-                warn!("Job panicked/cancelled on attempt {}/{}: {}", attempt, max_attempts, err_msg);
-                
+                warn!(
+                    "Job panicked/cancelled on attempt {}/{}: {}",
+                    attempt, max_attempts, err_msg
+                );
+
                 if attempt >= max_attempts {
-                    error!("Job failed permanently after panicking {} times", max_attempts);
-                    if let Err(db_e) = record_failure(&ctx.pool, run_id, &err_msg, duration_ms).await {
+                    error!(
+                        "Job failed permanently after panicking {} times",
+                        max_attempts
+                    );
+                    if let Err(db_e) =
+                        record_failure(&ctx.pool, run_id, &err_msg, duration_ms).await
+                    {
                         error!("Failed to record job failure: {}", db_e);
                     }
                     break;
@@ -290,7 +302,7 @@ async fn execute_job_with_retries(job: &JobDefinition, ctx: JobContext) {
             }
             Err(_) => {
                 warn!("Job timed out on attempt {}/{}", attempt, max_attempts);
-                
+
                 if attempt >= max_attempts {
                     error!("Job timed out permanently after {} attempts", max_attempts);
                     if let Err(db_e) = record_timeout(&ctx.pool, run_id, duration_ms).await {
@@ -300,7 +312,7 @@ async fn execute_job_with_retries(job: &JobDefinition, ctx: JobContext) {
                 }
             }
         }
-        
+
         // Backoff slightly before retry (optional, but good practice)
         tokio::time::sleep(Duration::from_secs(2)).await;
     }

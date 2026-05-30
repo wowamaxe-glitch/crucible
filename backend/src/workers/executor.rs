@@ -1,3 +1,4 @@
+use crate::error::AppError;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
@@ -6,7 +7,6 @@ use std::time::Duration;
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 use tracing::Instrument;
-use crate::error::AppError;
 
 /// A concurrent task executor that limits the number of concurrently executing tasks.
 ///
@@ -127,16 +127,16 @@ impl TaskExecutor {
             async move {
                 // Acquire semaphore permit (waits if necessary)
                 let permit = semaphore.acquire_owned().await;
-                
+
                 // Execute the task
                 let result = task.await;
-                
+
                 // Release the permit implicitly when it goes out of scope
                 drop(permit);
-                
+
                 // Decrement running count
                 running_count.fetch_sub(1, Ordering::Relaxed);
-                
+
                 // Update appropriate counter based on result
                 match result {
                     Ok(()) => {
@@ -209,7 +209,7 @@ mod tests {
 
         // Execute 4 tasks that each take some time
         let mut handles = Vec::new();
-        
+
         for i in 0..4 {
             let executor = executor.clone();
             let handle = executor.execute(Box::pin(async move {
@@ -239,14 +239,10 @@ mod tests {
         let executor = TaskExecutor::new(5);
 
         // Execute a successful task
-        let success_handle = executor.execute(Box::pin(async move {
-            Ok(())
-        }));
+        let success_handle = executor.execute(Box::pin(async move { Ok(()) }));
 
         // Execute a failing task
-        let fail_handle = executor.execute(Box::pin(async move {
-            Err(AppError::Internal)
-        }));
+        let fail_handle = executor.execute(Box::pin(async move { Err(AppError::Internal) }));
 
         // Wait for both to complete
         let success_result = success_handle.await.unwrap();
@@ -283,7 +279,7 @@ mod tests {
 
         // Give shutdown a moment to start
         sleep(Duration::from_millis(50)).await;
-        
+
         // Shutdown should still be waiting (tasks still running)
         assert!(executor.running_count() > 0);
 

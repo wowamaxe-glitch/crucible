@@ -1,10 +1,10 @@
 use super::audit::*;
 use axum::http::StatusCode;
 use axum::Json;
-use serde_json::json;
-use sqlx::{PgPool, Executor};
-use std::sync::Arc;
 use redis::AsyncCommands;
+use serde_json::json;
+use sqlx::{Executor, PgPool};
+use std::sync::Arc;
 use tokio::sync::OnceCell;
 
 // Mock or test helpers for DB and Redis
@@ -31,10 +31,13 @@ async fn test_log_event_success() {
     let result = service.log_event(event.clone()).await;
     assert!(result.is_ok());
     // Check DB
-    let row = sqlx::query!("SELECT * FROM audit_logs WHERE event_type = $1 ORDER BY timestamp DESC LIMIT 1", event.event_type)
-        .fetch_one(&db)
-        .await
-        .unwrap();
+    let row = sqlx::query!(
+        "SELECT * FROM audit_logs WHERE event_type = $1 ORDER BY timestamp DESC LIMIT 1",
+        event.event_type
+    )
+    .fetch_one(&db)
+    .await
+    .unwrap();
     assert_eq!(row.user_id, Some("user123".to_string()));
     // Check Redis
     let mut conn = redis.get_async_connection().await.unwrap();
@@ -61,7 +64,9 @@ async fn test_log_audit_event_handler() {
         .unwrap();
     let resp = axum::Server::bind(&"127.0.0.1:0".parse().unwrap())
         .serve(app.into_make_service())
-        .with_graceful_shutdown(async { tokio::time::sleep(std::time::Duration::from_millis(100)).await })
+        .with_graceful_shutdown(async {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await
+        })
         .await;
     assert!(resp.is_ok());
 }

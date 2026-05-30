@@ -1,26 +1,19 @@
-use axum::extract::State;
-use axum::{Json, response::IntoResponse, extract::State};
-use serde::{Serialize, Deserialize};
-use tracing::{info, instrument, info_span};
-use chrono::{DateTime, Utc};
-use crate::error::AppError;
-use crate::services::{error_recovery::ErrorManager, sys_metrics::MetricsExporter};
-use axum::{extract::State, response::IntoResponse, Json};
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tracing::{info, instrument};
-use utoipa::ToSchema;
-use crate::services::{
-    sys_metrics::MetricsExporter,
-    error_recovery::ErrorManager,
-    log_aggregator::LogAggregator,
-    tracing::TracingService,
+use crate::api::contracts::{
+    ApiResponse, ProfileTriggerRequest, ProfileTriggerResponse, SystemStatus, ValidatedJson,
 };
 use crate::config::reload::ConfigManager;
-use crate::api::contracts::{ApiResponse, SystemStatus, ProfileTriggerRequest, ProfileTriggerResponse, ValidatedJson};
-use sqlx::PgPool;
+use crate::services::{
+    error_recovery::ErrorManager, log_aggregator::LogAggregator, sys_metrics::MetricsExporter,
+    tracing::TracingService,
+};
+use axum::{extract::State, response::IntoResponse, Json};
+use chrono::{DateTime, Utc};
 use redis::Client as RedisClient;
+use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
+use std::sync::Arc;
+use tracing::{info, info_span, instrument};
+use utoipa::ToSchema;
 
 pub struct AppState {
     pub db: Option<sqlx::PgPool>,
@@ -76,19 +69,17 @@ pub async fn get_metrics(
 ) -> Result<impl IntoResponse, AppError> {
     let span = info_span!("metrics.collection");
     let _enter = span.enter();
-    
+
     info!("Collecting performance metrics");
 
-    let sys_metrics = state.metrics_exporter.get_metrics().await;
 
-    
     // Instrument the metrics exporter call
     let metrics_span = TracingService::service_method_span("MetricsExporter", "get_metrics");
     let _metrics_enter = metrics_span.enter();
-    
+
     let sys_metrics = state.metrics_exporter.get_metrics().await;
     drop(_metrics_enter);
-    
+
     let report = MetricsReport {
         uptime_secs: sys_metrics.uptime,
         memory_usage_bytes: sys_metrics.memory_usage,
@@ -119,23 +110,16 @@ pub async fn get_metrics(
     tag = "profiling"
 )]
 #[instrument(skip_all, fields(http.method = "GET", http.route = "/api/v1/profiling/health"))]
-pub async fn get_health(
-    State(state): State<Arc<AppState>>,
-) -> Result<impl IntoResponse, AppError> {
+pub async fn get_health(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, AppError> {
     let span = info_span!("health.check");
     let _enter = span.enter();
-    
+
     info!("Performing system health check");
 
-    
     // Check database connectivity with tracing
-    let db_span = TracingService::db_query_span(
-        "SELECT 1",
-        "postgres",
-        "PING"
-    );
+    let db_span = TracingService::db_query_span("SELECT 1", "postgres", "PING");
     let _db_enter = db_span.enter();
-    
+
     let db_healthy = sqlx::query("SELECT 1")
         .fetch_optional(&state.db)
         .await
@@ -145,12 +129,11 @@ pub async fn get_health(
             false
         });
     drop(_db_enter);
-    
+
     let response = HealthResponse {
         status: if db_healthy { "healthy" } else { "degraded" }.to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         timestamp: Utc::now(),
-        database_connected: true,
         database_connected: db_healthy,
         redis_connected: true,
     };
@@ -161,7 +144,7 @@ pub async fn get_health(
         "Health check completed"
     );
 
-    Ok(Json(response));
+    Ok(Json(response))
 }
 
 /// Handler for Prometheus-compatible metrics.
@@ -169,7 +152,7 @@ pub async fn get_health(
 pub async fn get_prometheus_metrics() -> impl IntoResponse {
     let span = info_span!("prometheus.metrics.export");
     let _enter = span.enter();
-    
+
     info!("Exporting Prometheus-format metrics");
     let metrics = "# HELP backend_requests_total Total number of requests\n\
 # TYPE backend_requests_total counter\n\
@@ -182,19 +165,17 @@ backend_ledger_latency_ms 120\n";
 
 /// Handler for detailed system status
 #[instrument(skip_all, fields(http.method = "GET", http.route = "/api/status"))]
-pub async fn get_system_status(
-    State(state): State<Arc<AppState>>,
-) -> ApiResponse<SystemStatus> {
+pub async fn get_system_status(State(state): State<Arc<AppState>>) -> ApiResponse<SystemStatus> {
     let span = info_span!("system.status");
     let _enter = span.enter();
-    
+
     info!("Retrieving system status");
-    
+
     let metrics_span = TracingService::service_method_span("MetricsExporter", "get_metrics");
     let _metrics_enter = metrics_span.enter();
     let metrics = state.metrics_exporter.get_metrics().await;
     drop(_metrics_enter);
-    
+
     let recovery_span = TracingService::service_method_span("ErrorManager", "get_active_tasks");
     let _recovery_enter = recovery_span.enter();
     let recovery_tasks = state.error_manager.get_active_tasks().await;
@@ -206,11 +187,6 @@ pub async fn get_system_status(
         memory_used_bytes: metrics.memory_usage,
         active_recovery_tasks: recovery_tasks.len(),
     })
-    Json(serde_json::json!({
-        "status": "healthy",
-        "metrics": metrics,
-        "active_recovery_tasks": recovery_tasks,
-    }))
 }
 
 /// Handler to trigger profile collection (CPU, memory profiling)
@@ -221,10 +197,14 @@ pub async fn trigger_profile_collection(
 ) -> ApiResponse<ProfileTriggerResponse> {
     // In a real implementation, this would trigger a CPU/Memory profile
     // using the provided payload (duration, sample rate, etc.)
-    
+
     ApiResponse::new(ProfileTriggerResponse {
         profile_id: uuid::Uuid::new_v4(),
-        message: format!("Profiling collection triggered for label: {}", payload.label),
-        estimated_completion: chrono::Utc::now() + chrono::Duration::seconds(payload.duration_secs as i64),
+        message: format!(
+            "Profiling collection triggered for label: {}",
+            payload.label
+        ),
+        estimated_completion: chrono::Utc::now()
+            + chrono::Duration::seconds(payload.duration_secs as i64),
     })
 }

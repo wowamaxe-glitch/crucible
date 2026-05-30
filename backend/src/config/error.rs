@@ -25,11 +25,21 @@ impl std::error::Error for ConfigError {}
 impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Formatter<'_> {
         match self {
-            ConfigError::MissingRequiredField(field) => write!(f, "Missing required configuration field: {}", field),
-            ConfigError::InvalidValue { field, reason } => write!(f, "Invalid value for configuration field '{}': {}", field, reason),
+            ConfigError::MissingRequiredField(field) => {
+                write!(f, "Missing required configuration field: {}", field)
+            }
+            ConfigError::InvalidValue { field, reason } => write!(
+                f,
+                "Invalid value for configuration field '{}': {}",
+                field, reason
+            ),
             ConfigError::LoadError(reason) => write!(f, "Failed to load configuration: {}", reason),
             ConfigError::ValidationError(errors) => {
-                write!(f, "Configuration validation failed with {} errors:\n", errors.len())?;
+                write!(
+                    f,
+                    "Configuration validation failed with {} errors:\n",
+                    errors.len()
+                )?;
                 for (i, err) in errors.iter().enumerate() {
                     write!(f, "  {}. {}\n", i + 1, err)?;
                 }

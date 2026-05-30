@@ -89,11 +89,7 @@ pub async fn record_failure(
 }
 
 /// Records that a job timed out.
-pub async fn record_timeout(
-    pool: &PgPool,
-    run_id: Uuid,
-    duration_ms: i64,
-) -> Result<(), JobError> {
+pub async fn record_timeout(pool: &PgPool, run_id: Uuid, duration_ms: i64) -> Result<(), JobError> {
     sqlx::query!(
         r#"
         UPDATE job_runs
@@ -110,7 +106,11 @@ pub async fn record_timeout(
 }
 
 /// Retrieves the most recent runs for a given job, ordered chronologically descending.
-pub async fn get_recent_runs(pool: &PgPool, job_name: &str, limit: i64) -> Result<Vec<JobRun>, JobError> {
+pub async fn get_recent_runs(
+    pool: &PgPool,
+    job_name: &str,
+    limit: i64,
+) -> Result<Vec<JobRun>, JobError> {
     let runs = sqlx::query_as!(
         JobRun,
         r#"

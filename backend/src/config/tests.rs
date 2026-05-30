@@ -19,10 +19,22 @@ fn test_toml_files_valid() {
 
 #[test]
 fn test_environment_parsing() {
-    assert_eq!(Environment::from_str("development").unwrap(), Environment::Development);
-    assert_eq!(Environment::from_str("dev").unwrap(), Environment::Development);
-    assert_eq!(Environment::from_str("STAGING").unwrap(), Environment::Staging);
-    assert_eq!(Environment::from_str("prod").unwrap(), Environment::Production);
+    assert_eq!(
+        Environment::from_str("development").unwrap(),
+        Environment::Development
+    );
+    assert_eq!(
+        Environment::from_str("dev").unwrap(),
+        Environment::Development
+    );
+    assert_eq!(
+        Environment::from_str("STAGING").unwrap(),
+        Environment::Staging
+    );
+    assert_eq!(
+        Environment::from_str("prod").unwrap(),
+        Environment::Production
+    );
     assert!(Environment::from_str("invalid").is_err());
 }
 
@@ -31,22 +43,26 @@ fn test_load_development_config() {
     // Set required env vars to avoid validation errors without race conditions
     temp_env::with_vars(
         [
-            ("APP_DATABASE__URL", Some("postgres://user:pass@localhost/db")),
+            (
+                "APP_DATABASE__URL",
+                Some("postgres://user:pass@localhost/db"),
+            ),
             ("APP_REDIS__URL", Some("redis://localhost:6379")),
         ],
         || {
-            let config = AppConfig::load(Environment::Development).expect("Failed to load dev config");
-            
+            let config =
+                AppConfig::load(Environment::Development).expect("Failed to load dev config");
+
             // Check overrides from development.toml vs default.toml
             assert_eq!(config.server.host, "127.0.0.1");
             assert_eq!(config.server.port, 3000);
             assert_eq!(config.observability.log_level, "debug");
-            
+
             // Check SQLx pool options translation
             let _pool_opts = config.database.to_sqlx_pool_options();
             // We verify the translation executes without panicking and producing valid options.
             assert_eq!(config.database.max_connections, 5); // From dev defaults
-            
+
             // Tracing init shouldn't panic
             config.observability.init_tracing(Environment::Development);
         },
@@ -57,15 +73,21 @@ fn test_load_development_config() {
 fn test_production_missing_tls_validation() {
     temp_env::with_vars(
         [
-            ("APP_DATABASE__URL", Some("postgres://user:pass@localhost/db")),
+            (
+                "APP_DATABASE__URL",
+                Some("postgres://user:pass@localhost/db"),
+            ),
             ("APP_REDIS__URL", Some("redis://localhost:6379")),
         ],
         || {
-            let err = AppConfig::load(Environment::Production).expect_err("Should fail without TLS config");
-            
+            let err = AppConfig::load(Environment::Production)
+                .expect_err("Should fail without TLS config");
+
             match err {
                 crate::config::ConfigError::ValidationError(errors) => {
-                    assert!(errors.iter().any(|e| e.contains("TLS configuration is strictly required")));
+                    assert!(errors
+                        .iter()
+                        .any(|e| e.contains("TLS configuration is strictly required")));
                 }
                 _ => panic!("Expected ValidationError, got {:?}", err),
             }
@@ -82,11 +104,11 @@ fn test_validation_collects_all_errors() {
         ],
         || {
             let err = AppConfig::load(Environment::Production).expect_err("Should fail validation");
-            
+
             match err {
                 crate::config::ConfigError::ValidationError(errors) => {
                     // TLS missing, DB URL empty, Redis URL empty
-                    assert!(errors.len() >= 3); 
+                    assert!(errors.len() >= 3);
                     assert!(errors.iter().any(|e| e.contains("TLS configuration")));
                     assert!(errors.iter().any(|e| e.contains("Database URL")));
                     assert!(errors.iter().any(|e| e.contains("Redis URL")));
@@ -101,14 +123,17 @@ fn test_validation_collects_all_errors() {
 fn test_env_var_override_wins() {
     temp_env::with_vars(
         [
-            ("APP_DATABASE__URL", Some("postgres://user:pass@localhost/db")),
+            (
+                "APP_DATABASE__URL",
+                Some("postgres://user:pass@localhost/db"),
+            ),
             ("APP_REDIS__URL", Some("redis://localhost:6379")),
             ("APP_SERVER__PORT", Some("9999")),
             ("APP_DATABASE__MAX_CONNECTIONS", Some("42")),
         ],
         || {
             let config = AppConfig::load(Environment::Development).unwrap();
-            
+
             assert_eq!(config.server.port, 9999);
             assert_eq!(config.database.max_connections, 42);
         },
@@ -124,7 +149,7 @@ fn test_database_to_pool_options() {
         connect_timeout_secs: 15,
         idle_timeout_secs: 30,
     };
-    
+
     let _pool_opts = config.to_sqlx_pool_options();
     // PoolOptions builder successfully generated
 }
@@ -164,12 +189,12 @@ fn test_sensitive_fields_redacted_in_debug() {
     };
 
     let debug_str = format!("{:?}", config);
-    
+
     assert!(!debug_str.contains("secret:password"));
     assert!(!debug_str.contains("secretpass"));
     assert!(!debug_str.contains("secretpass2"));
     assert!(!debug_str.contains("secret.key"));
-    
+
     assert!(debug_str.contains("[REDACTED]"));
     assert!(debug_str.contains("/path/to/cert")); // Public cert path is OK
 }

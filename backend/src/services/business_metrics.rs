@@ -1,9 +1,9 @@
-use std::collections::HashMap;
-use std::sync::Arc;
 use chrono::{DateTime, Duration, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, instrument, warn};
 use uuid::Uuid;
@@ -158,7 +158,14 @@ impl BusinessMetricsService {
     #[instrument(skip(self, metrics))]
     pub async fn record_metrics_batch(
         &self,
-        metrics: Vec<(String, Decimal, String, MetricCategory, HashMap<String, String>, MetricSource)>,
+        metrics: Vec<(
+            String,
+            Decimal,
+            String,
+            MetricCategory,
+            HashMap<String, String>,
+            MetricSource,
+        )>,
     ) -> Result<Vec<BusinessMetric>, AppError> {
         let mut tx = self.db.begin().await?;
         let mut results = Vec::with_capacity(metrics.len());
@@ -217,13 +224,12 @@ impl BusinessMetricsService {
         let limit = query.limit.unwrap_or(100);
         let offset = query.offset.unwrap_or(0);
 
-        let total = sqlx::query_scalar!(
-            r#"SELECT COUNT(*) as "count!" FROM business_metrics WHERE 1=1"#
-        )
-        .fetch_one(&self.db)
-        .await
-        .map_err(|e| AppError::Database(e))?
-        .unwrap_or(0);
+        let total =
+            sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!" FROM business_metrics WHERE 1=1"#)
+                .fetch_one(&self.db)
+                .await
+                .map_err(|e| AppError::Database(e))?
+                .unwrap_or(0);
 
         let metrics = sqlx::query_as!(
             BusinessMetric,
@@ -246,20 +252,18 @@ impl BusinessMetricsService {
     /// Get aggregated metrics summary.
     #[instrument(skip(self))]
     pub async fn get_metrics_summary(&self) -> Result<MetricsSummary, AppError> {
-        let total: i64 = sqlx::query_scalar!(
-            r#"SELECT COUNT(*) as "count!" FROM business_metrics"#
-        )
-        .fetch_one(&self.db)
-        .await
-        .map_err(|e| AppError::Database(e))?
-        .unwrap_or(0);
+        let total: i64 =
+            sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!" FROM business_metrics"#)
+                .fetch_one(&self.db)
+                .await
+                .map_err(|e| AppError::Database(e))?
+                .unwrap_or(0);
 
-        let latest: Option<DateTime<Utc>> = sqlx::query_scalar!(
-            r#"SELECT MAX(recorded_at) as "max!" FROM business_metrics"#
-        )
-        .fetch_one(&self.db)
-        .await
-        .map_err(|e| AppError::Database(e))?;
+        let latest: Option<DateTime<Utc>> =
+            sqlx::query_scalar!(r#"SELECT MAX(recorded_at) as "max!" FROM business_metrics"#)
+                .fetch_one(&self.db)
+                .await
+                .map_err(|e| AppError::Database(e))?;
 
         let rows = sqlx::query!(
             r#"SELECT category as "category!: MetricCategory", COUNT(*) as "count!: i64" FROM business_metrics GROUP BY category"#
@@ -307,10 +311,7 @@ impl BusinessMetricsService {
 
     /// Get the latest value for a specific metric.
     #[instrument(skip(self))]
-    pub async fn get_latest_metric(
-        &self,
-        name: &str,
-    ) -> Result<Option<BusinessMetric>, AppError> {
+    pub async fn get_latest_metric(&self, name: &str) -> Result<Option<BusinessMetric>, AppError> {
         // Check cache first
         {
             let cache = self.cache.read().await;
@@ -429,9 +430,9 @@ pub async fn query_metrics(
     State(state): State<Arc<MetricsState>>,
     axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let category = params.get("category").and_then(|c| {
-        serde_json::from_str(&format!("\"{}\"", c)).ok()
-    });
+    let category = params
+        .get("category")
+        .and_then(|c| serde_json::from_str(&format!("\"{}\"", c)).ok());
 
     let from = params
         .get("from")

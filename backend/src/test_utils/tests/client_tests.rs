@@ -74,7 +74,7 @@ async fn test_post_json_serialization_and_deserialization() {
     };
 
     let response = client.post("/echo").json(&payload).send().await;
-    
+
     let returned_payload: TestPayload = response.assert_status(StatusCode::OK).json();
     assert_eq!(payload, returned_payload);
 }
@@ -82,9 +82,13 @@ async fn test_post_json_serialization_and_deserialization() {
 #[tokio::test]
 async fn test_bearer_token_injection() {
     let client = ApiTestClient::new(test_router());
-    
-    client.get("/auth-check").send().await.assert_status(StatusCode::UNAUTHORIZED);
-    
+
+    client
+        .get("/auth-check")
+        .send()
+        .await
+        .assert_status(StatusCode::UNAUTHORIZED);
+
     client
         .get("/auth-check")
         .bearer("my-secret-token")
@@ -96,10 +100,13 @@ async fn test_bearer_token_injection() {
 #[tokio::test]
 async fn test_custom_header_injection() {
     let client = ApiTestClient::new(test_router());
-    
+
     client
         .get("/header-check")
-        .header(axum::http::header::HeaderName::from_static("x-custom-header"), "value")
+        .header(
+            axum::http::header::HeaderName::from_static("x-custom-header"),
+            "value",
+        )
         .send()
         .await
         .assert_status(StatusCode::OK);
@@ -108,7 +115,7 @@ async fn test_custom_header_injection() {
 #[tokio::test]
 async fn test_query_params_appended() {
     let client = ApiTestClient::new(test_router());
-    
+
     let response = client
         .get("/query-check")
         .query_param("search", "hello-world")
@@ -123,7 +130,11 @@ async fn test_query_params_appended() {
 #[should_panic(expected = "Status mismatch. Expected: 200 OK, Actual: 404 Not Found")]
 async fn test_assert_status_panics_readably() {
     let client = ApiTestClient::new(test_router());
-    client.get("/non-existent").send().await.assert_status(StatusCode::OK);
+    client
+        .get("/non-existent")
+        .send()
+        .await
+        .assert_status(StatusCode::OK);
 }
 
 #[tokio::test]

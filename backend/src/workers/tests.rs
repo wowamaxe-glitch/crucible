@@ -2,7 +2,7 @@
 mod tests {
     use super::*;
     use std::time::Duration;
-    
+
     /// Test CacheWarmWorker construction
     #[test]
     fn test_cache_warm_worker_construction() {
@@ -13,10 +13,10 @@ mod tests {
             redis_client: redis::Client::open("redis://127.0.0.1/").unwrap(),
             warm_interval: Duration::from_secs(30),
         };
-        
+
         assert!(true);
     }
-    
+
     /// Test JobProgressTracker construction
     #[test]
     fn test_job_progress_tracker_construction() {
@@ -25,10 +25,10 @@ mod tests {
             redis_client: redis::Client::open("redis://127.0.0.1/").unwrap(),
             update_interval: Duration::from_secs(10),
         };
-        
+
         assert!(true);
     }
-    
+
     /// Test WorkerHealthMonitor construction
     #[test]
     fn test_worker_health_monitor_construction() {
@@ -38,7 +38,7 @@ mod tests {
             check_interval: Duration::from_secs(5),
             health_ttl: Duration::from_secs(300),
         };
-        
+
         assert!(true);
     }
 }

@@ -1,14 +1,14 @@
-use std::sync::Arc;
 use axum::{
     http::{HeaderMap, HeaderValue, Response, StatusCode},
     middleware::Next,
     response::IntoResponse,
     Request,
 };
-use redis::{Client, AsyncCommands};
-use tracing::{info, debug, warn, error};
-use serde::{Serialize, Deserialize};
+use redis::{AsyncCommands, Client};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::Duration;
+use tracing::{debug, error, info, warn};
 
 /// Cache key generator for HTTP requests
 #[derive(Debug, Clone)]
@@ -20,7 +20,7 @@ impl CacheKeyGenerator {
         let method = request.method().as_str();
         let uri = request.uri().to_string();
         let query = request.uri().query().unwrap_or("");
-        
+
         // Create hashable key
         format!("{}:{}:{}", method, uri, query)
     }
@@ -43,11 +43,14 @@ impl CacheMiddleware {
     }
 
     /// Try to get cached response
-    async fn get_cached_response(&self, key: &str) -> Result<Option<CachedResponse>, Box<dyn std::error::Error>> {
+    async fn get_cached_response(
+        &self,
+        key: &str,
+    ) -> Result<Option<CachedResponse>, Box<dyn std::error::Error>> {
         let mut conn = self.redis_client.get_async_connection().await?;
-        
+
         let cached: Option<String> = conn.get(key).await?;
-        
+
         match cached {
             Some(json) => {
                 let cached_response: CachedResponse = serde_json::from_str(&json)?;
@@ -58,17 +61,22 @@ impl CacheMiddleware {
     }
 
     /// Store response in cache
-    async fn store_response(&self, key: &str, response: &Response) -> Result<(), Box<dyn std::error::Error>> {
+    async fn store_response(
+        &self,
+        key: &str,
+        response: &Response,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut conn = self.redis_client.get_async_connection().await?;
-        
+
         // Convert response to cacheable format
         let cached_response = CachedResponse::from_response(response);
-        
+
         let json = serde_json::to_string(&cached_response)?;
-        
+
         // Store with TTL
-        conn.set_ex(key, json, self.default_ttl.as_secs() as usize).await?;
-        
+        conn.set_ex(key, json, self.default_ttl.as_secs() as usize)
+            .await?;
+
         Ok(())
     }
 }
@@ -85,18 +93,13 @@ impl CachedResponse {
     /// Create cached response from HTTP response
     pub fn from_response(response: &Response) -> Self {
         let (parts, body) = response.into_parts();
-        
+
         let headers: Vec<(String, String)> = parts
             .headers
             .iter()
-            .map(|(name, value)| {
-                (
-                    name.to_string(),
-                    value.to_str().unwrap_or("").to_string(),
-                )
-            })
+            .map(|(name, value)| (name.to_string(), value.to_str().unwrap_or("").to_string()))
             .collect();
-        
+
         Self {
             status: parts.status.as_u16(),
             headers,
@@ -108,7 +111,7 @@ impl CachedResponse {
     pub fn into_response(self) -> Response {
         let mut response = Response::builder()
             .status(StatusCode::from_u16(self.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR));
-        
+
         // Add headers
         for (name, value) in self.headers {
             if let Ok(header_name) = name.parse() {
@@ -117,25 +120,24 @@ impl CachedResponse {
                 }
             }
         }
-        
-        response.body(axum::body::Body::from(self.body)).unwrap_or_else(|_| {
-            Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(axum::body::Body::empty())
-                .unwrap()
-        })
+
+        response
+            .body(axum::body::Body::from(self.body))
+            .unwrap_or_else(|_| {
+                Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(axum::body::Body::empty())
+                    .unwrap()
+            })
     }
 }
 
 /// Axum middleware function
-pub async fn cache_middleware(
-    request: Request,
-    next: Next,
-) -> Response {
+pub async fn cache_middleware(request: Request, next: Next) -> Response {
     // This is a placeholder - in real implementation, this would be configured
     // with the actual Redis client and TTL
     let key = CacheKeyGenerator::generate_key(&request);
-    
+
     // For now, just pass through to next handler
     // In production, this would check cache first, then call next if not found
     next.run(request).await
@@ -182,7 +184,9 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
+    type Future = std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>,
+    >;
 
     fn poll_ready(
         mut self: std::pin::Pin<&mut Self>,
@@ -194,7 +198,7 @@ where
     fn call(&mut self, req: Req) -> Self::Future {
         let mut inner = self.inner.clone();
         let middleware = self.middleware.clone();
-        
+
         Box::pin(async move {
             // In production, this would check cache first
             // For now, just call inner service

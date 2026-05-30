@@ -1,8 +1,8 @@
-use std::sync::Arc;
-use tracing::{info, error, warn};
-use redis::{Client, AsyncCommands};
+use redis::{AsyncCommands, Client};
 use sqlx::PgPool;
+use std::sync::Arc;
 use tokio::time::{sleep, Duration};
+use tracing::{error, info, warn};
 
 /// Cache warming worker that pre-loads frequently accessed data into Redis
 #[derive(Debug, Clone)]
@@ -25,12 +25,12 @@ impl CacheWarmWorker {
     /// Start the cache warming process
     pub async fn start(&self) -> Result<(), Box<dyn std::error::Error>> {
         info!("Starting cache warming worker...");
-        
+
         loop {
             if let Err(e) = self.warm_cache().await {
                 error!("Failed to warm cache: {}", e);
             }
-            
+
             // Wait for the configured interval before next warm cycle
             sleep(self.warm_interval).await;
         }
@@ -39,29 +39,33 @@ impl CacheWarmWorker {
     /// Warm the cache with frequently accessed data
     async fn warm_cache(&self) -> Result<(), Box<dyn std::error::Error>> {
         info!("Warming cache...");
-        
+
         // Get Redis connection
         let mut redis_conn = self.redis_client.get_async_connection().await?;
-        
+
         // Example: Warm dashboard metrics cache
         // In a real implementation, this would query database and populate Redis
         let dashboard_metrics = self.load_dashboard_metrics().await?;
-        
+
         // Store in Redis with TTL
-        redis_conn.set_ex(
-            "dashboard:metrics:latest",
-            serde_json::to_string(&dashboard_metrics)?,
-            300, // 5 minutes TTL
-        ).await?;
-        
+        redis_conn
+            .set_ex(
+                "dashboard:metrics:latest",
+                serde_json::to_string(&dashboard_metrics)?,
+                300, // 5 minutes TTL
+            )
+            .await?;
+
         // Example: Warm popular build metrics
         let build_metrics = self.load_popular_builds().await?;
-        redis_conn.set_ex(
-            "builds:popular:latest",
-            serde_json::to_string(&build_metrics)?,
-            600, // 10 minutes TTL
-        ).await?;
-        
+        redis_conn
+            .set_ex(
+                "builds:popular:latest",
+                serde_json::to_string(&build_metrics)?,
+                600, // 10 minutes TTL
+            )
+            .await?;
+
         info!("Cache warming completed successfully");
         Ok(())
     }

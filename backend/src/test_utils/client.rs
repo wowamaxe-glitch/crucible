@@ -121,10 +121,8 @@ impl RequestBuilder {
 
     /// Appends a Bearer token to the `Authorization` header.
     pub fn bearer(mut self, token: &str) -> Self {
-        self.headers.push((
-            header::AUTHORIZATION,
-            format!("Bearer {}", token),
-        ));
+        self.headers
+            .push((header::AUTHORIZATION, format!("Bearer {}", token)));
         self
     }
 
@@ -261,19 +259,26 @@ impl TestResponse {
             )
         });
 
-        let actual_val = json_val.pointer(&format!("/{}", field.replace('.', "/"))).unwrap_or_else(|| {
-            panic!("Field '{}' not found in JSON body:\n{}", field, serde_json::to_string_pretty(&json_val).unwrap());
-        });
+        let actual_val = json_val
+            .pointer(&format!("/{}", field.replace('.', "/")))
+            .unwrap_or_else(|| {
+                panic!(
+                    "Field '{}' not found in JSON body:\n{}",
+                    field,
+                    serde_json::to_string_pretty(&json_val).unwrap()
+                );
+            });
 
         let actual: T = serde_json::from_value(actual_val.clone()).unwrap_or_else(|e| {
-            panic!("Failed to deserialize field '{}' as {}: {}", field, std::any::type_name::<T>(), e);
+            panic!(
+                "Failed to deserialize field '{}' as {}: {}",
+                field,
+                std::any::type_name::<T>(),
+                e
+            );
         });
 
-        assert_eq!(
-            actual, expected,
-            "JSON field '{}' mismatch",
-            field
-        );
+        assert_eq!(actual, expected, "JSON field '{}' mismatch", field);
         self
     }
 }

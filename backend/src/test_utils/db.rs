@@ -1,9 +1,9 @@
+use crate::error::AppError;
+use sqlx::{postgres::PgPool, Pool, Postgres};
 use std::env;
 use std::sync::Arc;
 use tokio::runtime::Handle;
 use uuid::Uuid;
-use sqlx::{Postgres, Pool, postgres::PgPool};
-use crate::error::AppError;
 
 /// Sets up a test database with a unique name and runs migrations.
 ///
@@ -25,45 +25,43 @@ use crate::error::AppError;
 /// Returns AppError if database creation, connection, or migration fails
 pub async fn setup_test_db() -> Result<PgPool, AppError> {
     // Get the base database URL from environment
-    let database_url = env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set for test database setup");
-    
+    let database_url =
+        env::var("DATABASE_URL").expect("DATABASE_URL must be set for test database setup");
+
     // Parse the URL to extract connection details
     let mut url = url::Url::parse(&database_url)?;
-    
+
     // Extract the current database name
     let db_name = url.path().trim_start_matches('/').to_string();
-    
+
     // Generate a unique test database name
     let test_db_name = format!("crucible_test_{}", Uuid::new_v4());
-    
+
     // Connect to the default database (usually 'postgres') to create our test DB
     url.set_path("/postgres");
     let admin_url = url.as_str();
-    
+
     // Create connection to admin database
     let admin_pool = PgPool::connect(admin_url).await?;
-    
+
     // Create the test database
     sqlx::query(&format!("CREATE DATABASE {}", test_db_name))
         .execute(&admin_pool)
         .await?;
-    
+
     // Close admin connection
     admin_pool.close().await;
-    
+
     // Now connect to the test database
     url.set_path(&format!("/{}", test_db_name));
     let test_db_url = url.as_str();
-    
+
     // Create pool for test database
     let pool = PgPool::connect(test_db_url).await?;
-    
+
     // Run migrations
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await?;
-    
+    sqlx::migrate!("./migrations").run(&pool).await?;
+
     Ok(pool)
 }
 
@@ -84,26 +82,26 @@ pub async fn setup_test_db() -> Result<PgPool, AppError> {
 pub async fn teardown_test_db(pool: PgPool, db_name: &str) -> Result<(), AppError> {
     // Close the pool first
     pool.close().await;
-    
+
     // Extract connection details to connect to admin database
     let db_url = pool.options().get_url();
     let mut url = url::Url::parse(db_url)?;
-    
+
     // Switch to admin database
     url.set_path("/postgres");
     let admin_url = url.as_str();
-    
+
     // Create connection to admin database
     let admin_pool = PgPool::connect(admin_url).await?;
-    
+
     // Drop the test database
     sqlx::query(&format!("DROP DATABASE IF EXISTS {}", db_name))
         .execute(&admin_pool)
         .await?;
-    
+
     // Close admin connection
     admin_pool.close().await;
-    
+
     Ok(())
 }
 
@@ -142,23 +140,20 @@ impl TestDb {
     /// Returns AppError if test database setup fails
     pub async fn new() -> Result<Self, AppError> {
         let pool = setup_test_db().await?;
-        
+
         // Extract database name from the pool's URL
         let db_url = pool.options().get_url();
         let url = url::Url::parse(db_url)?;
         let db_name = url.path().trim_start_matches('/').to_string();
-        
-        Ok(Self {
-            pool,
-            db_name,
-        })
+
+        Ok(Self { pool, db_name })
     }
 }
 
 impl Drop for TestDb {
     fn drop(&mut self) {
         // Use the current tokio runtime to run the async teardown
-        if let Some(handle) = Handle::try_current() {
+        if let Ok(handle) = Handle::try_current() {
             // Spawn a blocking task to run the teardown
             let pool = self.pool.clone();
             let db_name = self.db_name.clone();
@@ -185,50 +180,60 @@ mod tests {
     #[tokio::test]
     async fn test_setup_and_teardown_test_db() {
         // Set up test database URL if not already set
-        env::set_var("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/postgres");
-        
+        env::set_var(
+            "DATABASE_URL",
+            "postgres://postgres:postgres@localhost:5432/postgres",
+        );
+
         // Setup test database
         let db = TestDb::new().await.expect("Failed to create test database");
-        
+
         // Verify we can query the database
         let result = sqlx::query_scalar::<_, i64>("SELECT 1")
             .fetch_one(&db.pool)
             .await
             .expect("Failed to query test database");
-        
+
         assert_eq!(result, 1);
-        
+
         // Verify database name follows expected pattern
         assert!(db.db_name.starts_with("crucible_test_"));
-        
+
         // When db goes out of scope, Drop implementation will clean up
         // We explicitly test the teardown function below
     }
 
     #[tokio::test]
-    async def test_teardown_test_db_function() {
+    async fn test_teardown_test_db_function() {
         // Set up test database URL if not already set
-        env::set_var("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/postgres");
-        
+        env::set_var(
+            "DATABASE_URL",
+            "postgres://postgres:postgres@localhost:5432/postgres",
+        );
+
         // Setup test database manually
-        let pool = setup_test_db().await.expect("Failed to create test database");
-        
+        let pool = setup_test_db()
+            .await
+            .expect("Failed to create test database");
+
         // Get database name
         let db_url = pool.options().get_url();
         let url = url::Url::parse(db_url).expect("Failed to parse database URL");
         let db_name = url.path().trim_start_matches('/').to_string();
-        
+
         // Verify we can query the database
         let result = sqlx::query_scalar::<_, i64>("SELECT 1")
             .fetch_one(&pool)
             .await
             .expect("Failed to query test database");
-        
+
         assert_eq!(result, 1);
-        
+
         // Teardown the database
-        teardown_test_db(pool, &db_name).await.expect("Failed to tear down test database");
-        
+        teardown_test_db(pool, &db_name)
+            .await
+            .expect("Failed to tear down test database");
+
         // Note: We can't easily verify the database was dropped without attempting
         // to reconnect, which would fail. The teardown function not returning an
         // error indicates success.

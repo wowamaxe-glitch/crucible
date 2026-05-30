@@ -13,7 +13,7 @@
 //!
 //! # async fn example(pool: PgPool, redis: Client) -> anyhow::Result<()> {
 //! let service = BuildMetricsService::new(pool, redis);
-//! 
+//!
 //! // Record a build metric
 //! let metric = BuildMetric {
 //!     project_name: "crucible".to_string(),
@@ -27,21 +27,21 @@
 //!     build_timestamp: Utc::now(),
 //! };
 //! service.record_build(metric).await?;
-//! 
+//!
 //! // Query metrics
 //! let metrics = service.get_project_metrics("crucible", 10).await?;
 //! # Ok(())
 //! # }
 //! ```
 
-use sqlx::PgPool;
-use redis::{Client as RedisClient, AsyncCommands};
-use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
-use tracing::{info, debug, warn, error};
-use thiserror::Error;
-use uuid::Uuid;
+use redis::{AsyncCommands, Client as RedisClient};
 use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
+use thiserror::Error;
+use tracing::{debug, error, info, warn};
+use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
 // Error types
@@ -73,15 +73,15 @@ pub enum MetricsError {
     /// An internal error occurred.
     #[error("Internal error: {0}")]
     Internal(String),
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+}
+
+use crate::services::tracing::TracingService;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::info;
-use serde::{Serialize, Deserialize};
-use chrono::{DateTime, Utc};
-use tracing::{info, instrument};
-use crate::services::tracing::TracingService;
+
+pub struct MetricsExporter {
+    current_metrics: Arc<RwLock<SystemMetrics>>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SystemMetrics {
@@ -264,19 +264,6 @@ impl BuildMetricsService {
             let metrics: Vec<BuildMetric> = serde_json::from_str(&val)
                 .map_err(|e| MetricsError::Serialization(e.to_string()))?;
             return Ok(metrics);
-impl Default for MetricsExporter {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl MetricsExporter {
-    pub fn new() -> Self {
-        Self {
-            current_metrics: Arc::new(RwLock::new(SystemMetrics {
-                timestamp: Utc::now(),
-                ..Default::default()
-            })),
         }
 
         // Cache miss – query database
@@ -298,21 +285,34 @@ impl MetricsExporter {
 
         let metrics: Vec<BuildMetric> = rows
             .into_iter()
-            .map(|(id, project_name, build_id, status_str, compilation_time_ms,
-                   dependency_count, cache_hit_rate, cpu_usage, memory_usage_mb, build_timestamp)| {
-                BuildMetric {
-                    id: Some(id),
+            .map(
+                |(
+                    id,
                     project_name,
                     build_id,
-                    build_status: BuildStatus::from_str(&status_str).unwrap_or(BuildStatus::Failed),
+                    status_str,
                     compilation_time_ms,
                     dependency_count,
                     cache_hit_rate,
                     cpu_usage,
                     memory_usage_mb,
                     build_timestamp,
-                }
-            })
+                )| {
+                    BuildMetric {
+                        id: Some(id),
+                        project_name,
+                        build_id,
+                        build_status: BuildStatus::from_str(&status_str)
+                            .unwrap_or(BuildStatus::Failed),
+                        compilation_time_ms,
+                        dependency_count,
+                        cache_hit_rate,
+                        cpu_usage,
+                        memory_usage_mb,
+                        build_timestamp,
+                    }
+                },
+            )
             .collect();
 
         // Populate cache with 5-minute TTL
@@ -354,11 +354,18 @@ impl MetricsExporter {
         .await?;
 
         match row {
-            Some((total_builds, successful_builds, failed_builds, avg_compilation_time, avg_cache_hit_rate)) => {
+            Some((
+                total_builds,
+                successful_builds,
+                failed_builds,
+                avg_compilation_time,
+                avg_cache_hit_rate,
+            )) => {
                 let success_rate = if total_builds > 0 {
-                    Decimal::from(successful_builds) / Decimal::from(total_builds) * dec!(100)
+                    Decimal::from(successful_builds) / Decimal::from(total_builds)
+                        * Decimal::from(100)
                 } else {
-                    dec!(0)
+                    Decimal::ZERO
                 };
 
                 Ok(BuildMetricsSummary {
@@ -366,7 +373,7 @@ impl MetricsExporter {
                     total_builds,
                     successful_builds,
                     failed_builds,
-                    avg_compilation_time_ms: avg_compilation_time.unwrap_or(dec!(0)),
+                    avg_compilation_time_ms: avg_compilation_time.unwrap_or(Decimal::ZERO),
                     success_rate,
                     avg_cache_hit_rate,
                 })
@@ -398,21 +405,34 @@ impl MetricsExporter {
 
         Ok(rows
             .into_iter()
-            .map(|(id, project_name, build_id, status_str, compilation_time_ms,
-                   dependency_count, cache_hit_rate, cpu_usage, memory_usage_mb, build_timestamp)| {
-                BuildMetric {
-                    id: Some(id),
+            .map(
+                |(
+                    id,
                     project_name,
                     build_id,
-                    build_status: BuildStatus::from_str(&status_str).unwrap_or(BuildStatus::Failed),
+                    status_str,
                     compilation_time_ms,
                     dependency_count,
                     cache_hit_rate,
                     cpu_usage,
                     memory_usage_mb,
                     build_timestamp,
-                }
-            })
+                )| {
+                    BuildMetric {
+                        id: Some(id),
+                        project_name,
+                        build_id,
+                        build_status: BuildStatus::from_str(&status_str)
+                            .unwrap_or(BuildStatus::Failed),
+                        compilation_time_ms,
+                        dependency_count,
+                        cache_hit_rate,
+                        cpu_usage,
+                        memory_usage_mb,
+                        build_timestamp,
+                    }
+                },
+            )
             .collect())
     }
 
@@ -443,7 +463,7 @@ impl MetricsExporter {
     /// Invalidate Redis cache for a specific project.
     async fn invalidate_project_cache(&self, project_name: &str) -> Result<(), MetricsError> {
         let mut conn = self.redis.get_multiplexed_async_connection().await?;
-        
+
         // Delete all cache keys for this project using SCAN
         let pattern = format!("build_metrics:{}:*", project_name);
         let keys: Vec<String> = redis::cmd("KEYS")
@@ -456,11 +476,31 @@ impl MetricsExporter {
                 let _: () = conn.del(&key).await?;
             }
             debug!(project = %project_name, count = keys.len(), "Invalidated project cache");
-    #[instrument(skip(self), fields(service.name = "MetricsExporter", service.method = "update_metrics"))]
+        }
+        Ok(())
+    }
+}
+
+impl Default for MetricsExporter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MetricsExporter {
+    pub fn new() -> Self {
+        Self {
+            current_metrics: Arc::new(RwLock::new(SystemMetrics {
+                timestamp: Utc::now(),
+                ..Default::default()
+            })),
+        }
+    }
+
     pub async fn update_metrics(&self, cpu: f64, mem: u64, uptime: u64) {
         let span = TracingService::service_method_span("MetricsExporter", "update_metrics");
         let _enter = span.enter();
-        
+
         let mut metrics = self.current_metrics.write().await;
         metrics.cpu_usage = cpu;
         metrics.memory_usage = mem;
@@ -469,19 +509,17 @@ impl MetricsExporter {
         info!(metrics = ?*metrics, "Updated system metrics");
     }
 
-    #[instrument(skip(self), fields(service.name = "MetricsExporter", service.method = "get_metrics"))]
     pub async fn get_metrics(&self) -> SystemMetrics {
         let span = TracingService::service_method_span("MetricsExporter", "get_metrics");
         let _enter = span.enter();
-        
+
         self.current_metrics.read().await.clone()
     }
 
-    #[instrument(skip(exporter), fields(service.name = "MetricsExporter", service.method = "run_collector"))]
     pub async fn run_collector(exporter: Arc<Self>) {
         let span = TracingService::service_method_span("MetricsExporter", "run_collector");
         let _enter = span.enter();
-        
+
         info!("Starting system metrics collector worker");
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
         let start_time = Utc::now();
@@ -494,8 +532,6 @@ impl MetricsExporter {
                 .update_metrics(12.5, 1024 * 1024 * 512, uptime)
                 .await;
         }
-
-        Ok(())
     }
 }
 
@@ -515,8 +551,14 @@ mod tests {
         assert_eq!(BuildStatus::Cancelled.as_str(), "cancelled");
         assert_eq!(BuildStatus::Running.as_str(), "running");
 
-        assert_eq!(BuildStatus::from_str("success").unwrap(), BuildStatus::Success);
-        assert_eq!(BuildStatus::from_str("SUCCESS").unwrap(), BuildStatus::Success);
+        assert_eq!(
+            BuildStatus::from_str("success").unwrap(),
+            BuildStatus::Success
+        );
+        assert_eq!(
+            BuildStatus::from_str("SUCCESS").unwrap(),
+            BuildStatus::Success
+        );
         assert!(BuildStatus::from_str("invalid").is_err());
     }
 
@@ -584,6 +626,9 @@ mod tests {
             let parsed = BuildStatus::from_str(s).unwrap();
             assert_eq!(status, parsed);
         }
+    }
+
+    #[tokio::test]
     async fn test_metrics_collection() {
         let exporter = MetricsExporter::new();
         exporter.update_metrics(25.0, 1024, 60).await;
