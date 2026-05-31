@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { EventListenerDashboard } from './components/EventListenerDashboard';
 import { TransactionSimulator } from './components/TransactionSimulator';
 import { GasCostEstimator } from './components/GasCostEstimator';
-import { Terminal, ShieldAlert, Zap, Settings, RefreshCw, Activity, Layers } from 'lucide-react';
+import { MultiChainDashboard } from './components/MultiChainDashboard';
+import { ContractAbiExplorer } from './components/ContractAbiExplorer';
+import { Terminal, ShieldAlert, Cpu, Globe, Zap, Settings, RefreshCw, Activity, Layers } from 'lucide-react';
 import './App.css';
 
-// Union of all tabs from both branches (excluding missing components)
-type Tab = 'events' | 'simulator' | 'metrics' | 'compiler' | 'dependencies';
+// Union of all tabs from both branches
+type Tab = 'events' | 'simulator' | 'metrics' | 'multichain' | 'abi' | 'compiler' | 'dependencies';
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('events');
@@ -104,6 +106,24 @@ function App() {
           </button>
           <button 
             type="button"
+            className={`tab-btn ${activeTab === 'multichain' ? 'active' : ''}`}
+            onClick={() => setActiveTab('multichain')}
+            data-testid="tab-multichain"
+          >
+            <Globe size={15} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+            Node Manager
+          </button>
+          <button 
+            type="button"
+            className={`tab-btn ${activeTab === 'abi' ? 'active' : ''}`}
+            onClick={() => setActiveTab('abi')}
+            data-testid="tab-abi"
+          >
+            <Cpu size={15} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+            ABI Explorer
+          </button>
+          <button 
+            type="button"
             className={`tab-btn ${activeTab === 'compiler' ? 'active' : ''}`}
             onClick={() => setActiveTab('compiler')}
             data-testid="tab-compiler"
@@ -127,6 +147,8 @@ function App() {
         {activeTab === 'events' && <EventListenerDashboard />}
         {activeTab === 'simulator' && <TransactionSimulator />}
         {activeTab === 'metrics' && <GasCostEstimator />}
+        {activeTab === 'multichain' && <MultiChainDashboard />}
+        {activeTab === 'abi' && <ContractAbiExplorer />}
         
         {activeTab === 'compiler' && (
           <div className="compiler-tab-panel container-panel">
