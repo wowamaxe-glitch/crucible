@@ -454,6 +454,8 @@ dependencies = [
  "rust_decimal_macros",
  "serde",
  "serde_json",
+ "sha2",
+ "soroban-sdk",
  "sqlx",
  "stellar-xdr 21.2.0",
  "temp-env",

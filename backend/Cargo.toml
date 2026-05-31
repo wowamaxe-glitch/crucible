@@ -10,9 +10,6 @@ authors = ["Crucible Contributors"]
 name = "crucible-backend"
 path = "src/main.rs"
 
-[[bin]]
-name = "backup"
-path = "src/bin/backup.rs"
 
 [features]
 testutils = ["mockall"]
@@ -66,6 +63,7 @@ apalis-redis = "0.6"
 rust_decimal = { version = "1.35", features = ["serde"] }
 stellar-xdr = { version = "21.0", features = ["std"] }
 base64 = "0.22"
+soroban-sdk = { workspace = true, features = ["testutils"] }
 validator = { version = "0.19", features = ["derive"] }
 tower_governor = "0.4"
 mockall = { version = "0.13", optional = true }
@@ -100,5 +98,3 @@ strip = true
 [[bin]]
 name = "backup"
 path = "src/bin/backup.rs"
-[features]
-testutils = ["mockall"]

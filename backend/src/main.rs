@@ -7,7 +7,7 @@ use axum::{
 };
 use backend::api::handlers::dashboard::{get_dashboard, DashboardState};
 use backend::{
-    api::handlers::{dashboard, errors, profiling, stellar},
+    api::handlers::{dashboard, errors, profiling, sandbox, stellar},
     api::middleware::logging::logging_middleware,
     config::{
         reload::{handle_get_config, handle_reload, ConfigManager},
@@ -18,6 +18,7 @@ use backend::{
         error_recovery::ErrorManager,
         log_aggregator::LogAggregator,
         log_alerts::AlertManager,
+        sandbox::ContractSandboxService,
         sys_metrics::MetricsExporter,
         tracing::{TracingConfig, TracingService},
     },
@@ -86,6 +87,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let alert_manager = Arc::new(AlertManager::new());
     let (log_aggregator, log_receiver) = LogAggregator::new();
     let log_aggregator = Arc::new(log_aggregator);
+    let sandbox_service = Arc::new(ContractSandboxService::default());
 
     tokio::spawn(MetricsExporter::run_collector(metrics_exporter.clone()));
     tokio::spawn(LogAggregator::run_worker(log_receiver));
@@ -185,6 +187,7 @@ async fn main() -> Result<(), anyhow::Error> {
             "/api/v1/errors",
             errors::error_analytics_routes(db_pool.clone(), redis_conn_dashboard.clone()),
         )
+        .nest("/api/v1/sandbox", sandbox::routes(sandbox_service))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(middleware::from_fn_with_state(
             state.clone(),
