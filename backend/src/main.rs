@@ -122,12 +122,9 @@ async fn main() -> Result<(), anyhow::Error> {
     let dashboard_state = Arc::new(DashboardState {
         metrics_exporter,
         error_manager,
-        config_manager: config_manager.clone(),
         alert_manager,
-        log_aggregator,
-        redis: redis_client,
         db: db_pool,
-        redis_conn: redis_conn_dashboard, // Depending on what DashboardState actually expects
+        redis: redis_client.clone(),
     });
 
     // OpenAPI docs
