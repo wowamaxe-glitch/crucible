@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { GasCostEstimator } from './components/GasCostEstimator';
 import { MultiChainDashboard } from './components/MultiChainDashboard';
 import { ContractAbiExplorer } from './components/ContractAbiExplorer';
-import { Terminal, ShieldAlert, Cpu, Globe, Zap, Settings, RefreshCw } from 'lucide-react';
+import { DeveloperOnboardingTutorial } from './components/DeveloperOnboardingTutorial';
+import { Terminal, ShieldAlert, Cpu, Globe, Zap, Settings, RefreshCw, BookOpen } from 'lucide-react';
 import './App.css';
 
-type Tab = 'metrics' | 'multichain' | 'abi' | 'compiler' | 'dependencies';
+type Tab = 'tutorial' | 'metrics' | 'multichain' | 'abi' | 'compiler' | 'dependencies';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<Tab>('metrics');
+  const [activeTab, setActiveTab] = useState<Tab>('tutorial');
   
   // Compiler state
   const [compileProjName, setCompileProjName] = useState('my-soroban-contract');
@@ -74,6 +75,14 @@ function App() {
         </div>
         <nav className="tab-navigation">
           <button 
+            className={`nav-tab-btn ${activeTab === 'tutorial' ? 'active' : ''}`}
+            onClick={() => setActiveTab('tutorial')}
+            data-testid="tab-tutorial"
+          >
+            <BookOpen size={15} />
+            Tutorial
+          </button>
+          <button 
             className={`nav-tab-btn ${activeTab === 'metrics' ? 'active' : ''}`}
             onClick={() => setActiveTab('metrics')}
             data-testid="tab-metrics"
@@ -117,6 +126,7 @@ function App() {
       </header>
       
       <main className="app-main">
+        {activeTab === 'tutorial' && <DeveloperOnboardingTutorial />}
         {activeTab === 'metrics' && <GasCostEstimator />}
         {activeTab === 'multichain' && <MultiChainDashboard />}
         {activeTab === 'abi' && <ContractAbiExplorer />}
