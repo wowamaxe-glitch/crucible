@@ -2,6 +2,7 @@ use crate::api::contracts::{
     ApiResponse, ProfileTriggerRequest, ProfileTriggerResponse, SystemStatus, ValidatedJson,
 };
 use crate::config::reload::ConfigManager;
+use crate::error::AppError;
 use crate::services::{
     error_recovery::ErrorManager, log_aggregator::LogAggregator, sys_metrics::MetricsExporter,
     tracing::TracingService,
@@ -119,9 +120,9 @@ pub async fn get_health(State(state): State<Arc<AppState>>) -> Result<impl IntoR
     let db_span = TracingService::db_query_span("SELECT 1", "postgres", "PING");
     let _db_enter = db_span.enter();
 
-    let db_healthy = if let Some(db) = &state.db {
+    let db_healthy = if let Some(ref pool) = state.db {
         sqlx::query("SELECT 1")
-            .fetch_optional(db)
+            .fetch_optional(pool)
             .await
             .map(|result| result.is_some())
             .unwrap_or_else(|e| {
@@ -129,7 +130,6 @@ pub async fn get_health(State(state): State<Arc<AppState>>) -> Result<impl IntoR
                 false
             })
     } else {
-        TracingService::record_error(&db_span, "database pool unavailable", "database");
         false
     };
     drop(_db_enter);
