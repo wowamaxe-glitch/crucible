@@ -36,8 +36,8 @@ impl BusinessMetric {
         let recorded_at: DateTime<Utc> = row.try_get("recorded_at")?;
         let source_str: String = row.try_get("source")?;
 
-        let tags: HashMap<String, String> = serde_json::from_value(tags_val)
-            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        let tags: HashMap<String, String> =
+            serde_json::from_value(tags_val).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         let category = MetricCategory::from_str(&category_str);
         let source = MetricSource::from_str(&source_str);
 
@@ -296,11 +296,10 @@ impl BusinessMetricsService {
         let limit = query.limit.unwrap_or(100);
         let offset = query.offset.unwrap_or(0);
 
-        let count_row =
-            sqlx::query(r#"SELECT COUNT(*) as "count" FROM business_metrics"#)
-                .fetch_one(&self.db)
-                .await
-                .map_err(|e| AppError::Database(e))?;
+        let count_row = sqlx::query(r#"SELECT COUNT(*) as "count" FROM business_metrics"#)
+            .fetch_one(&self.db)
+            .await
+            .map_err(|e| AppError::Database(e))?;
         let total: i64 = count_row.try_get("count")?;
 
         let rows = sqlx::query(
@@ -328,22 +327,20 @@ impl BusinessMetricsService {
     /// Get aggregated metrics summary.
     #[instrument(skip(self))]
     pub async fn get_metrics_summary(&self) -> Result<MetricsSummary, AppError> {
-        let count_row =
-            sqlx::query(r#"SELECT COUNT(*) as "count" FROM business_metrics"#)
-                .fetch_one(&self.db)
-                .await
-                .map_err(|e| AppError::Database(e))?;
+        let count_row = sqlx::query(r#"SELECT COUNT(*) as "count" FROM business_metrics"#)
+            .fetch_one(&self.db)
+            .await
+            .map_err(|e| AppError::Database(e))?;
         let total: i64 = count_row.try_get("count")?;
 
-        let max_row =
-            sqlx::query(r#"SELECT MAX(recorded_at) as "max" FROM business_metrics"#)
-                .fetch_one(&self.db)
-                .await
-                .map_err(|e| AppError::Database(e))?;
+        let max_row = sqlx::query(r#"SELECT MAX(recorded_at) as "max" FROM business_metrics"#)
+            .fetch_one(&self.db)
+            .await
+            .map_err(|e| AppError::Database(e))?;
         let latest: Option<DateTime<Utc>> = max_row.try_get("max")?;
 
         let rows = sqlx::query(
-            r#"SELECT category, COUNT(*) as "count" FROM business_metrics GROUP BY category"#
+            r#"SELECT category, COUNT(*) as "count" FROM business_metrics GROUP BY category"#,
         )
         .fetch_all(&self.db)
         .await
@@ -425,14 +422,12 @@ impl BusinessMetricsService {
     pub async fn prune_old_metrics(&self, retention_days: i64) -> Result<u64, AppError> {
         let cutoff = Utc::now() - Duration::days(retention_days);
 
-        let deleted = sqlx::query(
-            r#"DELETE FROM business_metrics WHERE recorded_at < $1"#,
-        )
-        .bind(cutoff)
-        .execute(&self.db)
-        .await
-        .map_err(|e| AppError::Database(e))?
-        .rows_affected();
+        let deleted = sqlx::query(r#"DELETE FROM business_metrics WHERE recorded_at < $1"#)
+            .bind(cutoff)
+            .execute(&self.db)
+            .await
+            .map_err(|e| AppError::Database(e))?
+            .rows_affected();
 
         info!(deleted, retention_days, "Pruned old metrics");
         Ok(deleted)

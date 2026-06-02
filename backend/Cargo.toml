@@ -20,7 +20,7 @@ testutils = ["mockall"]
 [dependencies]
 url = { version = "2", features = ["serde"] }
 # Web framework
-axum = { version = "0.7", features = ["macros"] }
+axum = { version = "0.7", features = ["macros", "ws"] }
 tower = { version = "0.5", features = ["full", "util"] }
 tower-http = { version = "0.5", features = ["cors", "trace", "compression-gzip", "request-id"] }
 
@@ -60,7 +60,7 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 # External Integrations
 utoipa = { version = "5.0", features = ["axum_extras", "chrono", "uuid"] }
-utoipa-swagger-ui = { version = "8.0", features = ["axum"] }
+utoipa-swagger-ui = { version = "8.0", features = ["axum", "vendored"] }
 apalis = { version = "0.6" }
 apalis-redis = "0.6"
 rust_decimal = { version = "1.35", features = ["serde"] }

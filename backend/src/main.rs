@@ -24,9 +24,7 @@ use backend::{
     },
 };
 use profiling::AppState;
-use redis::aio::ConnectionManager;
 use redis::Client as RedisClient;
-use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::signal;
@@ -95,11 +93,10 @@ async fn main() -> Result<(), anyhow::Error> {
     let config_manager = Arc::new(ConfigManager::new(config.clone()));
 
     // Redis Job Queue setup
-    let conn = ConnectionManager::new(redis_client.clone()).await?;
+    let conn = redis::aio::ConnectionManager::new(redis_client.clone()).await?;
     let redis_span = TracingService::redis_command_span("CONNECT", None);
     let _redis_enter = redis_span.enter();
 
-    let redis_conn_dashboard = ConnectionManager::new(redis_client.clone()).await?;
     let storage: RedisStorage<TransactionMonitorJob> = RedisStorage::new(conn);
 
     tracing::info!("Redis connection established");
@@ -115,6 +112,8 @@ async fn main() -> Result<(), anyhow::Error> {
         metrics_exporter: metrics_exporter.clone(),
         error_manager: error_manager.clone(),
         config_manager: config_manager.clone(),
+        log_aggregator: log_aggregator.clone(),
+        redis: redis_client.clone(),
     });
 
     // Create dashboard state
@@ -122,7 +121,7 @@ async fn main() -> Result<(), anyhow::Error> {
         metrics_exporter,
         error_manager,
         alert_manager,
-        db: db_pool,
+        db: db_pool.clone(),
         redis: redis_client.clone(),
     });
 
@@ -138,14 +137,10 @@ async fn main() -> Result<(), anyhow::Error> {
         paths(
             profiling::get_metrics,
             profiling::get_health,
-            dashboard::get_dashboard_metrics,
-            dashboard::get_contract_stats,
         ),
         components(schemas(
             profiling::MetricsReport,
             profiling::HealthResponse,
-            dashboard::DashboardMetrics,
-            dashboard::ContractStats
         )),
         tags(
             (name = "profiling", description = "Performance and health monitoring endpoints"),
@@ -162,8 +157,12 @@ async fn main() -> Result<(), anyhow::Error> {
     let app = Router::new()
         .route("/", get(|| async { "Crucible Backend API" }))
         .route("/.well-known/stellar.toml", get(stellar::get_stellar_toml))
-        .route("/api/config", get(handle_get_config))
-        .route("/api/config/reload", post(handle_reload))
+        .merge(
+            Router::new()
+                .route("/api/config", get(handle_get_config))
+                .route("/api/config/reload", post(handle_reload))
+                .with_state(config_manager.clone()),
+        )
         .nest(
             "/api/v1/profiling",
             Router::new()
@@ -196,18 +195,39 @@ async fn main() -> Result<(), anyhow::Error> {
                     "/analyze-dependencies",
                     post(backend::api::handlers::contracts::analyze_dependencies),
                 )
-                .with_state(state.clone()),
-        )
-        .route(
-            "/api/v1/networks",
-            get(backend::api::handlers::contracts::get_networks),
-        )
-                .route("/compile", post(backend::api::handlers::contracts::compile_contract))
-                .route("/analyze-dependencies", post(backend::api::handlers::contracts::analyze_dependencies))
-                .route("/compliance-check", post(backend::api::handlers::contracts::check_compliance))
-                .route("/logs", post(backend::api::handlers::contracts::log_contract_call))
-                .route("/logs", get(backend::api::handlers::contracts::get_contract_logs))
-                .route("/templates", get(backend::api::handlers::contracts::get_templates))
+                .route(
+                    "/compliance-check",
+                    post(backend::api::handlers::contracts::check_compliance),
+                )
+                .route(
+                    "/logs",
+                    post(backend::api::handlers::contracts::log_contract_call)
+                        .get(backend::api::handlers::contracts::get_contract_logs),
+                )
+                .route(
+                    "/templates",
+                    get(backend::api::handlers::contracts::get_templates),
+                )
+                .route(
+                    "/storage/optimize",
+                    post(backend::api::handlers::contracts::optimize_storage),
+                )
+                .route(
+                    "/versions",
+                    post(backend::api::handlers::contracts::create_contract_version),
+                )
+                .route(
+                    "/versions/diff",
+                    post(backend::api::handlers::contracts::diff_contract_versions),
+                )
+                .route(
+                    "/deployments",
+                    post(backend::api::handlers::contracts::create_contract_deployment),
+                )
+                .route(
+                    "/test-results",
+                    post(backend::api::handlers::contracts::store_contract_test_results),
+                )
                 .with_state(state.clone()),
         )
         .route(
@@ -217,14 +237,20 @@ async fn main() -> Result<(), anyhow::Error> {
         .nest(
             "/api/v1/admin",
             Router::new()
-                .route("/system-stats", get(backend::api::handlers::admin::get_system_stats))
-                .route("/maintenance", post(backend::api::handlers::admin::set_maintenance_mode))
+                .route(
+                    "/system-stats",
+                    get(backend::api::handlers::admin::get_system_stats),
+                )
+                .route(
+                    "/maintenance",
+                    post(backend::api::handlers::admin::set_maintenance_mode),
+                )
                 .route("/logs", get(backend::api::handlers::admin::get_admin_logs))
                 .with_state(state.clone()),
         )
         .nest(
             "/api/v1/errors",
-            errors::error_analytics_routes(db_pool.clone(), redis_conn_dashboard.clone()),
+            errors::error_analytics_routes(db_pool.clone(), redis_client.clone()),
         )
         .route(
             "/api/v1/ws/dashboard",
@@ -236,8 +262,7 @@ async fn main() -> Result<(), anyhow::Error> {
             logging_middleware,
         ))
         .layer(TraceLayer::new_for_http())
-        .layer(cors)
-        .with_state(state); // fallback state for /api/config handlers
+        .layer(cors);
 
     let addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port).parse()?;
 
@@ -262,7 +287,7 @@ async fn main() -> Result<(), anyhow::Error> {
             // Wait for server to finish shutting down (stops accepting new connections)
             match res {
                 Ok(()) => tracing::info!("Server stopped accepting new connections"),
-                Err(e) => tracing::error!("Server error during shutdown: {e}"),
+                Err(ref e) => tracing::error!("Server error during shutdown: {e}"),
             }
 
             // Wait for in-flight requests to complete
@@ -286,11 +311,11 @@ async fn main() -> Result<(), anyhow::Error> {
 
             // Close database connection pool
             tracing::info!("Closing database connection pool");
-            drop(state.db); // This closes the pool
+            drop(state.db.clone()); // Drop this handle; other shared handles close when released.
 
             // Close Redis connection
             tracing::info!("Closing Redis connection");
-            drop(state.redis); // This closes the connection manager
+            drop(state.redis.clone()); // Drop this handle; other shared handles close when released.
 
             tracing::info!("Graceful shutdown completed successfully");
 
