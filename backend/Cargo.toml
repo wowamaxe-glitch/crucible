@@ -20,7 +20,7 @@ testutils = ["mockall"]
 [dependencies]
 url = { version = "2", features = ["serde"] }
 # Web framework
-axum = { version = "0.7", features = ["macros"] }
+axum = { version = "0.7", features = ["macros", "ws"] }
 tower = { version = "0.5", features = ["full", "util"] }
 tower-http = { version = "0.5", features = ["cors", "trace", "compression-gzip", "request-id"] }
 tower_governor = "0.4"

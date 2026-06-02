@@ -32,8 +32,8 @@ impl BusinessMetric {
         let recorded_at: DateTime<Utc> = row.try_get("recorded_at")?;
         let source_str: String = row.try_get("source")?;
 
-        let tags: HashMap<String, String> = serde_json::from_value(tags_val)
-            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        let tags: HashMap<String, String> =
+            serde_json::from_value(tags_val).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         let category = MetricCategory::from_str(&category_str);
         let source = MetricSource::from_str(&source_str);
 

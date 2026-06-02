@@ -3,10 +3,20 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::api::contracts::ApiResponse;
-use crate::error::AppError;
-use crate::services::compilation::{CompilationResult, CompilationService};
-use crate::services::dependency_analyzer::{DependencyAnalysis, DependencyAnalyzer};
 use crate::api::handlers::profiling::AppState;
+use crate::error::AppError;
+use crate::services::compilation::CompilationService;
+use crate::services::contract_deployment::{ContractDeploymentService, DeploymentRequest};
+use crate::services::contract_storage_optimizer::{
+    ContractStorageOptimizer, StorageOptimizationInput,
+};
+use crate::services::contract_test_results::{
+    ContractTestResultStorageService, StoreTestRunRequest,
+};
+use crate::services::contract_versioning::{
+    ContractVersioningService, CreateContractVersionRequest, VersionDiffRequest,
+};
+use crate::services::dependency_analyzer::DependencyAnalyzer;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,15 +44,19 @@ pub struct NetworkConfig {
     pub active_contracts_count: u32,
 }
 
+fn require_db(state: &AppState) -> Result<sqlx::PgPool, AppError> {
+    state
+        .db
+        .clone()
+        .ok_or_else(|| AppError::InternalError("Database connection not configured".to_string()))
+}
+
 /// POST /api/v1/contracts/compile
 pub async fn compile_contract(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CompileRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let db = state
-        .db
-        .clone()
-        .ok_or_else(|| AppError::InternalError("Database connection not configured".to_string()))?;
+    let db = require_db(&state)?;
 
     let service = CompilationService::new(db);
     let result = service
@@ -58,10 +72,7 @@ pub async fn analyze_dependencies(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<AnalyzeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let db = state
-        .db
-        .clone()
-        .ok_or_else(|| AppError::InternalError("Database connection not configured".to_string()))?;
+    let db = require_db(&state)?;
 
     let service = DependencyAnalyzer::new(db);
     let result = service
@@ -121,7 +132,7 @@ pub async fn get_networks() -> Result<impl IntoResponse, AppError> {
 }
 
 use crate::services::compliance::ComplianceService;
-use crate::services::contract_call_logger::{ContractCallLogger, ContractCallLog};
+use crate::services::contract_call_logger::{ContractCallLog, ContractCallLogger};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -168,10 +179,7 @@ pub async fn check_compliance(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ComplianceRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let db = state
-        .db
-        .clone()
-        .ok_or_else(|| AppError::InternalError("Database connection not configured".to_string()))?;
+    let db = require_db(&state)?;
 
     let service = ComplianceService::new(db);
     let result = service.check_compliance(&payload.source_code).await?;
@@ -183,10 +191,7 @@ pub async fn log_contract_call(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<LogCallRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let db = state
-        .db
-        .clone()
-        .ok_or_else(|| AppError::InternalError("Database connection not configured".to_string()))?;
+    let db = require_db(&state)?;
 
     let service = ContractCallLogger::new(db);
     let log = ContractCallLog {
@@ -200,7 +205,9 @@ pub async fn log_contract_call(
         timestamp: Some(chrono::Utc::now()),
     };
     service.log_call(log).await?;
-    Ok(Json(ApiResponse::new(serde_json::json!({ "success": true }))))
+    Ok(Json(ApiResponse::new(
+        serde_json::json!({ "success": true }),
+    )))
 }
 
 /// GET /api/v1/contracts/logs
@@ -208,13 +215,60 @@ pub async fn get_contract_logs(
     State(state): State<Arc<AppState>>,
     axum::extract::Query(query): axum::extract::Query<GetLogsQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let db = state
-        .db
-        .clone()
-        .ok_or_else(|| AppError::InternalError("Database connection not configured".to_string()))?;
+    let db = require_db(&state)?;
 
     let service = ContractCallLogger::new(db);
     let result = service.get_logs(query.contract_id, query.limit).await?;
+    Ok(Json(ApiResponse::new(result)))
+}
+
+/// POST /api/v1/contracts/storage/optimize
+pub async fn optimize_storage(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<StorageOptimizationInput>,
+) -> Result<impl IntoResponse, AppError> {
+    let service = ContractStorageOptimizer::new(require_db(&state)?);
+    let result = service.optimize(payload).await?;
+    Ok(Json(ApiResponse::new(result)))
+}
+
+/// POST /api/v1/contracts/versions
+pub async fn create_contract_version(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CreateContractVersionRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let service = ContractVersioningService::new(require_db(&state)?);
+    let result = service.create_version(payload).await?;
+    Ok(Json(ApiResponse::new(result)))
+}
+
+/// POST /api/v1/contracts/versions/diff
+pub async fn diff_contract_versions(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<VersionDiffRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let service = ContractVersioningService::new(require_db(&state)?);
+    let result = service.diff(payload);
+    Ok(Json(ApiResponse::new(result)))
+}
+
+/// POST /api/v1/contracts/deployments
+pub async fn create_contract_deployment(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<DeploymentRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let service = ContractDeploymentService::new(require_db(&state)?);
+    let result = service.create_deployment(payload).await?;
+    Ok(Json(ApiResponse::new(result)))
+}
+
+/// POST /api/v1/contracts/test-results
+pub async fn store_contract_test_results(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<StoreTestRunRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let service = ContractTestResultStorageService::new(require_db(&state)?);
+    let result = service.store_run(payload).await?;
     Ok(Json(ApiResponse::new(result)))
 }
 
