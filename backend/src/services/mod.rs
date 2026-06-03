@@ -1,3 +1,5 @@
+pub mod cache_invalidation;
+pub mod log_alerts;
 pub mod alerts;
 pub mod analytics_aggregator;
 pub mod business_metrics;
