@@ -13,9 +13,16 @@ High-performance Rust backend for the Crucible smart contract testing platform, 
 - **Axum**: High-performance web framework.
 - **SQLx**: Async PostgreSQL driver with compile-time checked queries.
 - **Redis**: Caching and threshold tracking.
+- **Upload Validation**: Safe file upload validation with size, name, and MIME checks.
 - **Tracing**: Observability and structured logging.
+- **Error Handling**: Structured `AppError` responses for HTTP clients.
 
 ## API Endpoints
+
+### Health & Observability
+- `GET /health/live` - Liveness probe for process health.
+- `GET /health/ready` - Readiness probe for PostgreSQL + Redis connectivity.
+- `GET /metrics` - Prometheus metrics exposition endpoint.
 
 ### Rules Management
 - `GET /api/alerts/rules` - List all alerting rules.
@@ -95,6 +102,20 @@ docker compose up -d
 
 # Check service health
 curl http://localhost:8080/health
+docker compose ps
+
+# Test the health endpoints
+curl http://localhost:8080/health/live
+curl http://localhost:8080/health/ready
+
+# Expected readiness response:
+# {"status":"healthy","database":"healthy","cache":"healthy","version":"0.1.0"}
+
+# Test the metrics endpoint
+curl http://localhost:8080/metrics
+
+# Test the API status endpoint
+curl http://localhost:8080/api/v1/status
 ```
 
 ### Local Development (without Docker)

@@ -19,5 +19,6 @@ pub mod error_recovery;
 pub mod event_indexer;
 pub mod feature_flags;
 pub mod log_aggregator;
+pub mod metrics;
 pub mod sys_metrics;
 pub mod tracing;
