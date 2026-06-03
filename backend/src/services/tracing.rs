@@ -15,8 +15,7 @@ use opentelemetry_sdk::Resource;
 use opentelemetry_semantic_conventions::resource;
 use std::time::Duration;
 use tracing::{info_span, warn};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::{EnvFilter, Registry};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -40,6 +39,21 @@ pub enum TracingError {
 // TracingConfig
 
 /// Configuration for the tracing service.
+/// Keeps the OpenTelemetry provider alive and flushes spans during shutdown.
+#[derive(Debug)]
+pub struct TracingGuard {
+    tracer_provider: SdkTracerProvider,
+}
+
+impl Drop for TracingGuard {
+    fn drop(&mut self) {
+        if let Err(error) = self.tracer_provider.shutdown() {
+            eprintln!("failed to shut down OpenTelemetry tracer provider: {error:?}");
+        }
+    }
+}
+
+/// Configuration for the tracing service
 #[derive(Clone, Debug)]
 pub struct TracingConfig {
     /// OTLP exporter endpoint (e.g., `"http://jaeger:4317"`).
@@ -63,7 +77,7 @@ pub struct TracingConfig {
 impl Default for TracingConfig {
     fn default() -> Self {
         Self {
-            otlp_endpoint: "http://localhost:4317".to_string(),
+            otlp_endpoint: "http://localhost:4318/v1/traces".to_string(),
             service_name: "crucible-backend".to_string(),
             service_version: env!("CARGO_PKG_VERSION").to_string(),
             environment: std::env::var("ENV").unwrap_or_else(|_| "dev".to_string()),
@@ -182,7 +196,7 @@ impl TracingService {
             "OpenTelemetry tracing initialized"
         );
 
-        Ok(())
+        Ok(TracingGuard { tracer_provider })
     }
 
     /// Create an HTTP request span with semantic conventions.

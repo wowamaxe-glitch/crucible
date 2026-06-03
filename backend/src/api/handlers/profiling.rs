@@ -32,6 +32,13 @@ use crate::services::{
     tracing::TracingService,
 };
 use redis::Client as RedisClient;
+use crate::AppError;
+use axum::{extract::State, response::IntoResponse, Json};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tracing::{info, info_span, instrument};
+use utoipa::ToSchema;
 
 // ---------------------------------------------------------------------------
 // Shared application state
@@ -229,17 +236,42 @@ pub async fn get_health(
         result
     };
 
+    let redis_span = TracingService::redis_command_span("PING", None);
+    let _redis_enter = redis_span.enter();
+    let redis_healthy = match state.redis.get_multiplexed_async_connection().await {
+        Ok(mut conn) => redis::cmd("PING")
+            .query_async::<_, String>(&mut conn)
+            .await
+            .map(|pong| pong == "PONG")
+            .unwrap_or_else(|e| {
+                TracingService::record_error(&redis_span, &e.to_string(), "redis_ping");
+                false
+            }),
+        Err(e) => {
+            TracingService::record_error(&redis_span, &e.to_string(), "redis_connection");
+            false
+        }
+    };
+    drop(_redis_enter);
+
     let response = HealthResponse {
     Ok(Json(HealthResponse {
         status: if db_healthy { "healthy" } else { "degraded" }.to_string(),
+        status: if db_healthy && redis_healthy {
+            "healthy"
+        } else {
+            "degraded"
+        }
+        .to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         timestamp: Utc::now(),
         database_connected: db_healthy,
-        redis_connected: true,
+        redis_connected: redis_healthy,
     };
 
     tracing::info!(
         db_connected = db_healthy,
+        redis_connected = redis_healthy,
         version = env!("CARGO_PKG_VERSION"),
         "Health check completed"
     );

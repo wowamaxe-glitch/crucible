@@ -46,10 +46,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let env = Environment::from_env();
     let config = AppConfig::load(env).expect("Failed to load configuration");
 
-    // Initialize observability using the new config system
-    config.observability.init_tracing(env);
-
-    // Initialize OpenTelemetry tracing FIRST - before any other services
+    // Initialize OpenTelemetry tracing before other services so startup work is captured.
     let tracing_config = TracingConfig::new(
         "crucible-backend".to_string(),
         env!("CARGO_PKG_VERSION").to_string(),
@@ -60,10 +57,14 @@ async fn main() -> Result<(), anyhow::Error> {
             .observability
             .tracing_endpoint
             .clone()
-            .unwrap_or_else(|| "http://localhost:4317".to_string()),
+            .unwrap_or_else(|| "http://localhost:4318/v1/traces".to_string()),
     );
 
-    TracingService::init(tracing_config)?;
+    let _tracing_guard = TracingService::init_with_filter(
+        tracing_config,
+        Some(&config.observability.log_level),
+        config.observability.json_logs(env),
+    )?;
 
     let span = info_span!("app.startup");
     let _enter = span.enter();
@@ -332,6 +333,7 @@ async fn main() -> Result<(), anyhow::Error> {
             if let Some(pool) = &state.db {
                 pool.close().await;
             }
+            tracing::info!("Flushing tracing provider and releasing service clients");
 
             tracing::info!("Graceful shutdown completed successfully");
 

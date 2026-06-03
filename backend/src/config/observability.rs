@@ -28,5 +28,11 @@ impl ObservabilityConfig {
     /// Development uses a pretty formatter, while Staging/Production use JSON.
     pub fn init_tracing(&self, env: crate::config::Environment) {
         crate::utils::logger::init_tracing(&self.log_level, env);
+    /// Returns true when logs should be emitted as JSON.
+    pub fn json_logs(&self, env: crate::config::Environment) -> bool {
+        matches!(
+            env,
+            crate::config::Environment::Staging | crate::config::Environment::Production
+        )
     }
 }
